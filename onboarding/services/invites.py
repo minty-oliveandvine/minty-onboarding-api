@@ -40,15 +40,10 @@ from shared_models.models import Invitation, User
 
 logger = logging.getLogger("minty-onboarding")
 
-#: Roles the onboarding invite step may assign. Mirrors the Settings dropdown, which
-#: excludes entity_base (no standing at all) and super_admin (granted, never invited).
-ASSIGNABLE_ROLES = frozenset({"cashier", "shop_manager", "accountant", "admin"})
-
-
-def normalize_role(name) -> str:
-    if not name:
-        return ""
-    return str(name).strip().lower().replace(" ", "_").replace("-", "_")
+# NOTE: role validation and normalisation deliberately live nowhere in this module.
+# POST /invite is proxied to Flask, which owns those rules; a local copy here was removed
+# because it had already drifted -- it lacked core.policy's ROLE_ALIASES, so it would have
+# disagreed about "client", "user" and "no_role" had anything called it.
 
 
 def invite_payload(inv: Invitation) -> dict:

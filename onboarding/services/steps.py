@@ -1,22 +1,34 @@
-"""The wizard's step table. THE single source of truth.
+"""The wizard's step numbering, as the backend understands it.
 
-Before this, the ordering existed twice: as a ``STEPS`` array in the frontend's
-``OnboardingApp.jsx`` and as ``STEP_*`` constants in Flask's ``onboarding_state.py``, with
-the frontend's ``deriveResumeStep`` recomputing what the backend had already derived. Two
-copies of an ordering is one copy too many -- and they had already diverged in meaning,
-which is the subtle part:
+IMPORTANT: THIS IS NOT THE FRONTEND'S ORDERING, AND MUST NOT BE MADE INTO IT.
 
-    ``saved_step`` is the FRONTEND step id, stored verbatim.
-    ``current_step`` is the BACKEND's derived landing step.
+An earlier version of this module claimed to be "THE single source of truth" and published a
+label table for the frontend to adopt. That was wrong, and the mistake is worth recording so
+it is not repeated.
 
-They are numbered on the same scale and they do not mean the same thing. ``saved_step`` is
-where the user pressed "Save and Exit"; ``current_step`` is the furthest step the saved
-DATA justifies. Conflating them lands somebody on a step whose prerequisites are not met.
+The frontend derives its landing step from a DIFFERENT ordering on purpose.
+``OnboardingApp.jsx`` documents that this module's ``current_step`` "is derived from a
+different ordering (modules -> Xero -> petty-cash -> bills/invite) than the FE flow", refuses
+to use it as a landing step, and records the bug that trusting it caused: "resume jumped
+straight to Connect to Accounting". It uses ``current_step`` / ``max_reached`` only to raise
+the ceiling on steps already unlocked. Its own table also carries short and tiny label
+variants and module-conditional grouping that this one never had.
 
-This module owns the numbering, and ``/api/onboarding/state`` returns the table so the
-frontend can render labels from it and delete its own copy.
+So the two are different questions with different answers, not two copies of one. The label
+table and its ``step_table()`` serialiser were withdrawn once that was established; what
+remains is the numbering these two things genuinely need:
+
+    ``derive_current_step``  (services/state.py) -- which step the saved DATA justifies
+    ``is_valid_step``        -- the 1..9 bound on a ``saved_step`` the wizard sends
+
+``saved_step`` is the FRONTEND step id, stored verbatim. ``current_step`` is this backend's
+derivation. They share a scale and mean different things; conflating them lands somebody on a
+step whose prerequisites are not met.
 """
 
+# Every step the wizard has, kept complete even where this module does not reference one:
+# the numbering is a fact about the product, and a gap at 6 and 7 would read as though those
+# steps did not exist.
 STEP_BASIC = 1
 STEP_MODULE = 2
 STEP_INVITE = 3
@@ -29,25 +41,6 @@ STEP_ALL_SET = 9
 
 FIRST_STEP = STEP_BASIC
 LAST_STEP = STEP_ALL_SET
-
-#: id -> label, in wizard order. Labels match what the frontend renders today, so it can
-#: adopt this table without a visible change.
-STEPS: tuple[tuple[int, str], ...] = (
-    (STEP_BASIC, "Basic Information"),
-    (STEP_MODULE, "Select Module"),
-    (STEP_INVITE, "User Invite"),
-    (STEP_ACCOUNTING, "Connect to Accounting System"),
-    (STEP_SALES, "Sales Setting"),
-    (STEP_ACCOUNT_CODE, "Account Code Setting"),
-    (STEP_OTHERS, "Others"),
-    (STEP_BILLS, "Payment Settings"),
-    (STEP_ALL_SET, "All Set"),
-)
-
-
-def step_table() -> list[dict]:
-    """The table as JSON, for the ``steps`` key of the state response."""
-    return [{"id": sid, "label": label} for sid, label in STEPS]
 
 
 def is_valid_step(value) -> bool:

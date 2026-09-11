@@ -52,10 +52,12 @@ from core.exceptions import ConflictError, OnboardingValidationError
 from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
                                   EntitySaleSetting, SaleInfo, UserEntity)
 
-logger = logging.getLogger("minty-onboarding")
+# Imported rather than redeclared: two lists each calling themselves canonical is exactly
+# how they drift apart. services/plans.py owns the module codes; state.py imports them from
+# there too, so this is now the single definition.
+from onboarding.services.plans import MODULE_CODES
 
-#: Canonical module codes. Mirrors Flask's MODULE_CODES.
-MODULE_CODES = ("PETTY_CASH", "BILL")
+logger = logging.getLogger("minty-onboarding")
 
 #: Every module OFF at creation. Creation grants nothing -- a module switches on when its
 #: trial or subscription starts. See the module header before changing this.

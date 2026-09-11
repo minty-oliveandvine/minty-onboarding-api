@@ -267,8 +267,6 @@ def main():
     except _Rollback:
         pass
 
-    leftover = UserEntity.objects.filter(entity_id__isnull=False).none()  # no-op read
-    del leftover
     print("\nRolled back. Nothing written survives.")
     print(f"{'FAILED' if checks.failed else 'OK'} -- {checks.failed} check(s) failed")
     return 1 if checks.failed else 0

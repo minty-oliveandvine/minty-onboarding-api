@@ -41,10 +41,10 @@ import logging
 
 from core import xero_tokens
 from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
-                                  EntityPettycashSettings, EntitySaleSetting,
-                                  Report)
+                                  EntityPettycashSettings, Report)
 
 from onboarding.services import invites as invites_service
+from onboarding.services import sales_methods
 from onboarding.services import steps as step_defs
 from onboarding.services.plans import MODULE_BILL, MODULE_CODES, MODULE_PETTY_CASH
 
@@ -148,17 +148,15 @@ def _sales_methods_state(entity_id: str) -> dict:
     says it reads "sale_info rows", which is wrong and confusing, because there IS a
     ``sale_info`` catalog table and a ``sale_info_id`` column on this one.
     """
-    methods = (
-        EntitySaleSetting.objects.filter(
-            entity_id=entity_id, enabled=True, type__in=["Electronic", "Delivery"]
-        )
-        .order_by("display_order", "create_date")
-        .values_list("type", "sale_name")
-    )
-    return {
-        "electronic": [name for typ, name in methods if typ == "Electronic"],
-        "delivery": [name for typ, name in methods if typ == "Delivery"],
-    }
+    # Delegates rather than repeating the query: this was a second copy of
+    # sales_methods.list_grouped, and it had already drifted -- it hardcoded the type list
+    # where the other used MANAGED_TYPES, so adding a managed type would have been picked up
+    # by the endpoint and not by resume.
+    #
+    # The permission-checked entry point is not used here on purpose: /state is already past
+    # its own membership gate, and SALES_METHOD_VIEW would refuse an invited cashier the
+    # resume data they need.
+    return sales_methods.grouped_methods(entity_id)
 
 
 def _opening_balance_state(entity_id: str) -> dict | None:

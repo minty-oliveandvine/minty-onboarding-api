@@ -125,15 +125,14 @@ def ensure_custom_catalog_row(entity_id: str, name: str, method_type: str) -> Sa
     )
 
 
-def list_grouped(user_id, entity_id: str) -> dict:
-    """Enabled Electronic/Delivery method names, grouped by type.
+def grouped_methods(entity_id: str) -> dict:
+    """Enabled Electronic/Delivery method names, grouped by type. NO permission check.
 
-    The wizard works with plain display-name lists rather than the full method payloads the
-    Settings page uses, so this is deliberately a thinner shape than the Settings endpoint's.
+    Split out from :func:`list_grouped` so ``/state`` can reuse the query without the
+    permission gate -- resume must work for an invited cashier, who lacks
+    SALES_METHOD_VIEW. Callers that ARE the sales-methods endpoint go through
+    ``list_grouped``, which checks first.
     """
-    if not has_permission_by_user_id(user_id, Permission.SALES_METHOD_VIEW, entity_id):
-        raise AccessDeniedError("Access denied")
-
     rows = (
         EntitySaleSetting.objects.filter(
             entity_id=entity_id, enabled=True, type__in=MANAGED_TYPES
@@ -145,6 +144,13 @@ def list_grouped(user_id, entity_id: str) -> dict:
         "electronic": [name for typ, name in rows if typ == "Electronic"],
         "delivery": [name for typ, name in rows if typ == "Delivery"],
     }
+
+
+def list_grouped(user_id, entity_id: str) -> dict:
+    """:func:`grouped_methods`, gated on SALES_METHOD_VIEW. For the endpoint."""
+    if not has_permission_by_user_id(user_id, Permission.SALES_METHOD_VIEW, entity_id):
+        raise AccessDeniedError("Access denied")
+    return grouped_methods(entity_id)
 
 
 def replace(user_id, entity_id: str, electronic, delivery) -> dict:

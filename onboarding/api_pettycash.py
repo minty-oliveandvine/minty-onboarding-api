@@ -29,8 +29,6 @@ These four move when ``xero-service`` does. Until then they sit beside Groups F 
 Flask side of the write rule.
 """
 
-import logging
-
 from ninja import Body, Router, Schema
 
 from core import minty_client
@@ -39,7 +37,6 @@ from core.permissions import entity_for_member, require_entity_id
 from onboarding.services import opening_balance as opening_service
 from onboarding.services import sales_methods as sales_service
 
-logger = logging.getLogger("minty-onboarding")
 
 pettycash_router = Router()
 

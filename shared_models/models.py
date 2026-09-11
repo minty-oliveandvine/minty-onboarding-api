@@ -48,7 +48,7 @@ TYPE TRAP: uuid columns come back as ``uuid.UUID``, not ``str``
 and its JSON carries a plain string. Django's ``UUIDField`` hands back a ``UUID``
 object, which serialises differently and compares unequal to the string the wizard
 sends. Every response builder must ``str()`` these, and every lookup must accept both.
-See ``onboarding/services/uuids.py``.
+See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites that do it.
 """
 
 from django.db import models
@@ -170,7 +170,7 @@ class Entity(models.Model):
 
 
 class UserEntity(models.Model):
-    """Membership. WRITABLE -- onboarding adds the creator as super_admin.
+    """Membership. WRITABLE -- onboarding adds the creator as ``admin``.
 
     COMPOSITE PRIMARY KEY, modelled as one. billing-backend's mirror declares
     ``user = OneToOneField(..., primary_key=True)``, which tells Django a user belongs

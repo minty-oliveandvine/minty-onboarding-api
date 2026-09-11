@@ -43,10 +43,8 @@ TOKEN_SERVICE_SCOPE = "xero-access-token"
 
 
 def _token_service_url() -> str:
-    configured = getattr(settings, "XERO_TOKEN_SERVICE_URL", "") or ""
-    if configured:
-        return configured
-    return f"{settings.FLASK_APP_URL}/api/internal/xero/token"
+    """Flask's internal token endpoint. Defined in settings; see the note there."""
+    return settings.XERO_TOKEN_SERVICE_URL
 
 
 def access_token_for(entity_id: str) -> str | None:
@@ -62,7 +60,7 @@ def access_token_for(entity_id: str) -> str | None:
     Never raises. A token-service outage must not turn a wizard resume into a 500.
     """
     url = _token_service_url()
-    secret = getattr(settings, "SECRET_KEY", "") or ""
+    secret = settings.SECRET_KEY
     if not url or not secret:
         logger.error("xero: token service URL or SECRET_KEY unset; cannot get a token")
         return None
@@ -84,7 +82,7 @@ def access_token_for(entity_id: str) -> str | None:
         resp = requests.post(
             url,
             headers={"Authorization": f"Bearer {assertion}"},
-            timeout=int(getattr(settings, "XERO_TOKEN_SERVICE_TIMEOUT", 15)),
+            timeout=settings.XERO_TOKEN_SERVICE_TIMEOUT,
         )
     except requests.RequestException as exc:
         logger.warning("xero: token service unreachable for entity %s: %s", entity_id, exc)

@@ -42,14 +42,15 @@ import requests
 from django.conf import settings
 from django.http import JsonResponse
 
-from core.exceptions import UpstreamError
+from core.exceptions import HOUSE_FALLBACK, UpstreamError
 
 logger = logging.getLogger("minty-onboarding")
 
 #: What we say when Flask is unreachable or answers in a shape we cannot read. Cause-
 #: neutral on purpose: the caller cannot act on "upstream 502" and the wizard renders
-#: whatever is in ``error`` straight into a toast.
-UNREACHABLE = "Something went wrong on my end. Mind trying again?"
+#: whatever is in ``error`` straight into a toast. Aliased rather than re-typed, so the
+#: house sentence has exactly one definition.
+UNREACHABLE = HOUSE_FALLBACK
 
 
 def _url(path: str) -> str:

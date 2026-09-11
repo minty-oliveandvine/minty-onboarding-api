@@ -16,9 +16,8 @@ import pytest
 from core import xero_tokens
 from onboarding.services import state as state_service
 from onboarding.services import steps as step_defs
-from shared_models.models import (Entity, EntityPettycashSettings,
-                                  EntitySaleSetting, Invitation, Report,
-                                  UserEntity)
+from shared_models.models import (EntityPettycashSettings, EntitySaleSetting,
+                                  Invitation, Report, UserEntity)
 from tests.conftest import make_token
 
 STATE = "/api/onboarding/state"

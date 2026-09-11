@@ -53,9 +53,8 @@ def get_state(request, entity_id: str = ""):
     entity_id was given -- checked in that order, so 403-vs-404 cannot be used to probe
     which entity ids are real.
 
-    DIVERGES FROM FLASK BY ONE KEY: the response carries ``steps``, the wizard's step
-    table, so the frontend can delete its duplicate copy of the ordering. Additive -- every
-    key Flask sends is still sent, unchanged.
+    The response is Flask's, key for key. A ``steps`` key was briefly added here and then
+    withdrawn -- see services/steps.py for why the two orderings are not duplicates.
     """
     entity = entity_for_member(request.auth_user_id, entity_id)
     return state_service.get_onboarding_state(request.auth_user_id, entity)

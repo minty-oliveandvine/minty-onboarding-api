@@ -12,8 +12,6 @@ mechanically, and it is worth noticing that it is the finest-grained split in th
 extraction -- a single endpoint whose read half is local and whose write half is not.
 """
 
-import logging
-
 from ninja import Body, Router, Schema
 
 from core import minty_client
@@ -21,7 +19,6 @@ from core.permissions import entity_for_member
 
 from onboarding.services import invites as invites_service
 
-logger = logging.getLogger("minty-onboarding")
 
 invites_router = Router()
 

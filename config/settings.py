@@ -61,19 +61,6 @@ CORS_ALLOW_HEADERS = [
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "context_processors": [
-                "django.template.context_processors.request",
-            ],
-        },
-    },
-]
-
 # ---------------------------------------------------------------------------
 # Database -- the same database and schema the Flask app owns
 #
@@ -128,6 +115,21 @@ DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
 # ---------------------------------------------------------------------------
 FLASK_APP_URL = os.environ.get("FLASK_APP_URL", "http://localhost:5001").rstrip("/")
 MINTY_PROXY_TIMEOUT = int(os.environ.get("MINTY_PROXY_TIMEOUT", "20"))
+
+# Flask's internal Xero token endpoint, authenticated with the shared SECRET_KEY. Same two
+# names billing-backend uses, so both services are tuned the same way.
+#
+# These were previously read by core/xero_tokens.py via getattr() with a fallback, but were
+# never defined here -- so the getattr could only ever return its fallback and the setting
+# looked configurable while being nothing of the sort. Defining them is the fix; do not
+# re-introduce the getattr.
+#
+# SECURITY: this endpoint vends live Xero access tokens. It must not be routable from the
+# public internet -- restrict it at the ingress.
+XERO_TOKEN_SERVICE_URL = os.environ.get(
+    "XERO_TOKEN_SERVICE_URL", f"{FLASK_APP_URL}/api/internal/xero/token"
+)
+XERO_TOKEN_SERVICE_TIMEOUT = int(os.environ.get("XERO_TOKEN_SERVICE_TIMEOUT", "15"))
 
 # ---------------------------------------------------------------------------
 # Logging -- core + API formatters (same shape as billing-backend so the two

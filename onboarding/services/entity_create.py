@@ -1,0 +1,290 @@
+"""Creating a company. The first thing in this service that writes.
+
+Ported from Minty's ``blueprints/entity/services/shared.py::create_entity_for_user``, which
+is shared between the Jinja entity-create form and the onboarding API. Only the onboarding
+half is ported; the form keeps using Flask's copy, so BOTH paths write ``entities`` during
+the cutover. They are safe together because the rows are disjoint per request -- but never
+let both run for a single company.
+
+FOUR TABLES, NOT ONE
+
+Creating an entity writes:
+
+    entities              the company
+    user_entity           the creator's membership
+    entity_sale_setting   default payment/delivery methods
+    entity_function_map   one row per module, ALL OFF  <- see the guard below
+
+IDEMPOTENCY IS LOAD-BEARING, NOT A NICETY
+
+A cold resume has no ``localStorage``, so a stale or racing wizard can re-POST Step 1 for a
+company this user already created and abandoned mid-onboarding. Creating a second row would
+give them two half-finished companies with the same name and no way to tell which one the
+wizard is bound to. So an existing onboarding entity with the same name and the same member
+is RETURNED rather than duplicated.
+
+THE MODULE SEED, AND THE GUARD ON IT
+
+``entity_function_map`` is otherwise read-only to this service, because ``is_enabled`` is a
+projection of subscription state. The seed is the one exception, and it is allowed because
+it writes only ``False``:
+
+  * it grants nothing;
+  * it exists to CLOSE a permissive hole. With no explicit row the resolver fell back to
+    the catalog's ``is_active`` (default True), and Flask's comment records the cost --
+    "every entity ever created kept Petty Cash for free while its card still offered Start
+    free trial";
+  * Flask's ``create.py`` claims the seed is "Petty Cash enabled, Bill disabled". That
+    comment is stale. ``DEFAULT_MODULE_STATE`` is both modules ``False``, and the note above
+    it explains the change. Do not restore the old behaviour from the comment.
+
+:func:`_seed_module_defaults` raises on any attempt to write ``True``, so the narrowing is
+enforced by the code rather than remembered by a reader.
+"""
+
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from django.db import transaction
+
+from core.exceptions import ConflictError, OnboardingValidationError
+from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
+                                  EntitySaleSetting, SaleInfo, UserEntity)
+
+logger = logging.getLogger("minty-onboarding")
+
+#: Canonical module codes. Mirrors Flask's MODULE_CODES.
+MODULE_CODES = ("PETTY_CASH", "BILL")
+
+#: Every module OFF at creation. Creation grants nothing -- a module switches on when its
+#: trial or subscription starts. See the module header before changing this.
+DEFAULT_MODULE_STATE: dict[str, bool] = {code: False for code in MODULE_CODES}
+
+#: The creator's role. ADMIN, not super_admin -- ported verbatim from Flask's
+#: "The creator becomes the entity admin by policy". admin (rank 4) already clears every
+#: gate the wizard applies, so promoting them would widen standing for no requirement.
+CREATOR_ROLE = "admin"
+
+#: entity_function_map.created_by is 36 chars. Audit value for this path.
+ACTOR_ENTITY_CREATE = "entity_create"
+
+#: Fallback default methods for a database whose SaleInfo catalog has not been seeded.
+#: Cash leads and its type is 'Cash', NOT 'Electronic': the petty-cash closing-balance
+#: figure is found by keying on that type, so misfiling it breaks the report arithmetic.
+FALLBACK_SALES_METHODS = (
+    ("Cash", "cash_sales", "Cash", 0),
+    ("Visa", "visa_sales", "Electronic", 1),
+    ("Alipay", "alipay_sales", "Electronic", 2),
+    ("WeChat Pay", "wechat_sales", "Electronic", 3),
+    ("Mastercard", "master_sales", "Electronic", 4),
+    ("UnionPay", "unionpay_sales", "Electronic", 5),
+    ("Amex", "amex_sales", "Electronic", 6),
+    ("Octopus", "octopus_sales", "Electronic", 7),
+    ("Food Panda", "foodpanda_sales", "Delivery", 1),
+    ("Keeta", "keeta_sales", "Delivery", 2),
+    ("OpenRice", "openrice_sales", "Delivery", 3),
+)
+
+
+def _seed_default_sales_methods(entity_id: str) -> None:
+    """Default payment and delivery methods for a new entity.
+
+    Seeded from the ``sale_info`` catalog when it is populated, so a method added to the
+    catalog reaches new entities without editing code. The hardcoded list is the fallback
+    for a database where the catalog has not been seeded -- and also the source of the
+    per-method display order in that case.
+
+    ``value_name`` carries the legacy ``*_sales`` column key. It stays until every read has
+    moved to ``sale_info_id``; dropping it now would break the report columns that still
+    key on it.
+    """
+    now = datetime.now(timezone.utc)
+
+    catalog = list(
+        SaleInfo.objects.filter(entity_id__isnull=True, is_active=True).order_by(
+            "type", "display_order"
+        )
+    )
+
+    if catalog:
+        rows = [
+            EntitySaleSetting(
+                sale_id=str(uuid.uuid4()),
+                entity_id=entity_id,
+                sale_name=method.name,
+                value_name=method.legacy_column,
+                type=method.type,
+                sale_info_id=method.id,
+                display_order=method.display_order,
+                enabled=True,
+                create_date=now,
+                updated_at=now,
+            )
+            for method in catalog
+        ]
+    else:
+        rows = [
+            EntitySaleSetting(
+                sale_id=str(uuid.uuid4()),
+                entity_id=entity_id,
+                sale_name=name,
+                value_name=legacy,
+                type=typ,
+                display_order=order,
+                enabled=True,
+                create_date=now,
+                updated_at=now,
+            )
+            for name, legacy, typ, order in FALLBACK_SALES_METHODS
+        ]
+
+    EntitySaleSetting.objects.bulk_create(rows)
+    logger.info(
+        "onboarding: seeded %s default sales methods for entity %s", len(rows), entity_id
+    )
+
+
+def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None) -> None:
+    """Write one ``entity_function_map`` row per module, all disabled.
+
+    THE GUARD: this refuses to write ``is_enabled=True``. Enabling a module is a
+    subscription write and belongs to Flask until ``subscription-service`` exists (see the
+    module header and shared_models/models.py). Raising rather than silently coercing, so a
+    future caller that tries fails loudly in tests instead of quietly granting a paid module
+    for free.
+
+    Idempotent: an entity that already has a row for a module is left alone, so a retried
+    create cannot produce duplicate or contradictory rows -- and, importantly, cannot
+    overwrite a module the subscription lifecycle has since switched ON.
+    """
+    state = dict(DEFAULT_MODULE_STATE if state is None else state)
+
+    granted = [code for code, enabled in state.items() if enabled]
+    if granted:
+        raise AssertionError(
+            "onboarding-backend may not enable a module: "
+            f"{granted}. entity_function_map.is_enabled is a projection of "
+            "entity_module_subscription, which the subscription lifecycle writes. "
+            "Route the grant through Flask instead."
+        )
+
+    catalog = {
+        fn.function_code: fn.id
+        for fn in EntityFunction.objects.filter(function_code__in=list(state))
+    }
+    missing = [code for code in state if code not in catalog]
+    if missing:
+        # The seed migration is the prerequisite, not silent self-healing here. Logged and
+        # tolerated rather than raised: a company with no module rows is recoverable (the
+        # resolver denies every module, which is the safe answer), while refusing to create
+        # the company at all is not.
+        logger.error(
+            "onboarding: module catalog missing rows for %s; entity %s seeded without them",
+            missing,
+            entity_id,
+        )
+
+    existing = set(
+        EntityFunctionMap.objects.filter(
+            entity_id=entity_id, entity_function_id__in=list(catalog.values())
+        ).values_list("entity_function_id", flat=True)
+    )
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        EntityFunctionMap(
+            id=str(uuid.uuid4()),
+            entity_id=entity_id,
+            entity_function_id=fn_id,
+            # Explicit, always. The column's DATABASE default is `true`.
+            is_enabled=False,
+            enabled_at=None,
+            disabled_at=now,
+            created_by=ACTOR_ENTITY_CREATE[:36],
+            # NOT NULL with no database default -- omitting these fails the insert.
+            created_at=now,
+            updated_at=now,
+        )
+        for code, fn_id in catalog.items()
+        if fn_id not in existing
+    ]
+    if rows:
+        EntityFunctionMap.objects.bulk_create(rows)
+    logger.info(
+        "onboarding: seeded %s module rows (all disabled) for entity %s",
+        len(rows),
+        entity_id,
+    )
+
+
+def find_resumable_entity(user_id, name: str) -> Entity | None:
+    """An in-progress entity this user already created under this name, or None.
+
+    The idempotency key is (member, name, status='onboarding') -- deliberately narrow. It
+    must not match a FINALIZED company, or re-submitting Step 1 would silently rebind the
+    wizard to a live company and start editing it.
+    """
+    entity_ids = UserEntity.objects.filter(user_id=str(user_id)).values_list(
+        "entity_id", flat=True
+    )
+    return Entity.objects.filter(
+        id__in=entity_ids, name=name, status="onboarding"
+    ).first()
+
+
+def create_entity_for_user(
+    user_id, entity_name, country_code: str, currency_id: str
+) -> tuple[Entity, bool]:
+    """Create a company owned by ``user_id``, plus its default settings.
+
+    Returns ``(entity, created)``. ``created`` is False when an abandoned onboarding entity
+    with this name was returned instead -- the caller answers 201 either way, matching Flask,
+    because from the wizard's point of view the outcome is the same: here is your company id.
+
+    ``country_code`` is the ISO alpha-2 ``country_info`` PK and ``currency_id`` a
+    ``currency_info`` uuid. Callers resolve names to these first (onboarding/services/
+    resolve.py) -- both columns are FKs and will not accept a display label.
+
+    Raises OnboardingValidationError for a missing name and ConflictError for a name clash;
+    the handlers in core/exceptions.py render those as 400 and 409.
+    """
+    name = (entity_name or "").strip()
+    if not name:
+        raise OnboardingValidationError("Entity name is required.")
+
+    existing = find_resumable_entity(user_id, name)
+    if existing is not None:
+        logger.info(
+            "onboarding: reusing in-progress entity %s for a repeated Step 1 submit",
+            existing.id,
+        )
+        return existing, False
+
+    if Entity.objects.filter(name=name).exists():
+        # Flask's exact wording, including the missing plural -- the wizard matches on it.
+        raise ConflictError("Entity name already exist")
+
+    # One transaction for the whole creation. Flask commits the entity before adding the
+    # membership, which can leave a company nobody belongs to if the second commit fails --
+    # and such a row is invisible to the wizard and to the entity list, so nothing will ever
+    # reclaim it. Atomic here on purpose.
+    with transaction.atomic():
+        entity = Entity.objects.create(
+            id=str(uuid.uuid4()),
+            name=name,
+            country_code=country_code or None,
+            currency_id=currency_id or None,
+            status="onboarding",
+        )
+        UserEntity.objects.create(
+            user_id=str(user_id),
+            entity_id=entity.id,
+            role=CREATOR_ROLE,
+            approved=True,
+        )
+        _seed_default_sales_methods(entity.id)
+        _seed_module_defaults(entity.id)
+
+    logger.info("onboarding: created entity %s for user %s", entity.id, user_id)
+    return entity, True

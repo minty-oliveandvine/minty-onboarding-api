@@ -10,8 +10,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Shared with the Flask app (Module 1) and billing-backend (Module 2). Flask MINTS
 # the JWTs this service verifies, so a mismatch here 401s every request rather
 # than failing loudly at boot. All three services must read it from one source.
-SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+_DEFAULT_SECRET_KEY = "change-me-in-production"
+SECRET_KEY = os.environ.get("SECRET_KEY", _DEFAULT_SECRET_KEY)
 DEBUG = os.environ.get("DEBUG", "True").lower() in ("true", "1", "yes")
+
+# REFUSE TO BOOT WITH THE PLACEHOLDER KEY OUTSIDE DEBUG. On 2026-09-14 the production
+# deployment ran without SECRET_KEY set: every authenticated call answered 401
+# "Signature verification failed" while the public endpoints kept working, and nothing
+# said why. Worse than broken, it was forgeable -- the fallback string is in the repo.
+# A crash at startup is the loud failure this comment used to say we did not have.
+if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY is not set. It must be the same value the Flask app mints tokens "
+        "with; without it every request is refused with 401. Refusing to start."
+    )
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
 # Deliberately no django.contrib.contenttypes / django.contrib.auth.

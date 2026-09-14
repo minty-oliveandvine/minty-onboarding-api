@@ -139,3 +139,42 @@ def test_public_endpoints_ignore_a_bad_token(client, countries):
     """
     resp = client.get(PUBLIC, HTTP_AUTHORIZATION="Bearer garbage.token.here")
     assert resp.status_code == 200
+
+
+# --- clock skew ---------------------------------------------------------------------------
+
+
+def _token_stamped_at(user, offset):
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+    from django.conf import settings
+
+    at = datetime.now(timezone.utc) + offset
+    return jwt.encode(
+        {"user_id": str(user.id), "scope": "onboarding", "iat": at, "exp": at + timedelta(minutes=60)},
+        settings.SECRET_KEY,
+        algorithm="HS256",
+    )
+
+
+@pytest.mark.django_db
+def test_a_token_minted_a_few_seconds_in_the_future_is_accepted(client, user):
+    """Regression: PyJWT allows zero skew by default, so a token whose `iat` was stamped
+    by a host a few seconds ahead of this one was refused as "not yet valid (iat)". Two
+    production hosts do not share a clock; 60 seconds of leeway is allowed."""
+    from datetime import timedelta
+
+    token = _token_stamped_at(user, timedelta(seconds=30))
+    resp = client.get("/api/onboarding/state?entity_id=", HTTP_AUTHORIZATION=f"Bearer {token}")
+    # Past auth: 400 for the missing entity_id, not 401.
+    assert resp.status_code == 400, resp.content
+
+
+@pytest.mark.django_db
+def test_a_token_minted_well_in_the_future_is_still_refused(client, user):
+    from datetime import timedelta
+
+    token = _token_stamped_at(user, timedelta(minutes=10))
+    resp = client.get("/api/onboarding/state?entity_id=", HTTP_AUTHORIZATION=f"Bearer {token}")
+    assert resp.status_code == 401

@@ -33,7 +33,15 @@ def require_entity_id(entity_id) -> str:
 
 
 def is_member(user_id, entity_id: str) -> bool:
-    """Does this user hold a user_entity row for this entity?"""
+    """Does this user hold a user_entity row for this entity?
+
+    DELIBERATELY DOES NOT CHECK ``approved``, unlike ``core.policy.has_entity_access``.
+    This is the door; approval is enforced per permission inside the room. Flask's
+    ``_entity_for_member`` (blueprints/entity/routes/create.py) checks membership alone,
+    and the door here mirrors it so the wire contract matches -- an unapproved member can
+    still read ``/state`` and resume, and is refused anything that needs a role.
+    tests/test_policy.py pins both halves.
+    """
     return UserEntity.objects.filter(
         user_id=str(user_id), entity_id=entity_id
     ).exists()

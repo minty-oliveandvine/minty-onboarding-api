@@ -24,6 +24,17 @@ STATE = "/api/onboarding/state"
 SAVED_STEP = "/api/onboarding/saved-step"
 
 
+@pytest.fixture
+def xero_unverifiable(monkeypatch):
+    """Xero is CONNECTED as far as the row says, and the reconcile cannot verify it.
+
+    For tests about step derivation that need `xero_org_id` set and do not care about the
+    reconcile. Without a stub the reconcile really POSTs to the token service -- see the
+    network guard in conftest.
+    """
+    monkeypatch.setattr(xero_tokens, "connected_tenant_ids", lambda _eid: None)
+
+
 def state_of(client, auth, entity):
     resp = client.get(STATE, {"entity_id": entity.id}, **auth)
     assert resp.status_code == 200, resp.content
@@ -134,7 +145,7 @@ def test_modules_but_no_xero_lands_on_accounting(client, auth, entity, enable_mo
 
 @pytest.mark.django_db
 def test_petty_cash_without_account_codes_lands_on_sales(
-    client, auth, entity, enable_module
+    client, auth, entity, enable_module, xero_unverifiable
 ):
     enable_module(entity, "PETTY_CASH")
     entity.xero_org_id = str(uuid.uuid4())
@@ -144,7 +155,7 @@ def test_petty_cash_without_account_codes_lands_on_sales(
 
 @pytest.mark.django_db
 def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
-    client, auth, entity, enable_module
+    client, auth, entity, enable_module, xero_unverifiable
 ):
     enable_module(entity, "PETTY_CASH")
     entity.xero_org_id = str(uuid.uuid4())
@@ -156,7 +167,7 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
 
 
 @pytest.mark.django_db
-def test_bill_module_lands_on_bills(client, auth, entity, enable_module):
+def test_bill_module_lands_on_bills(client, auth, entity, enable_module, xero_unverifiable):
     enable_module(entity, "BILL")
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
@@ -179,7 +190,7 @@ def test_a_finalized_entity_reports_the_terminal_step(client, auth, entity, modu
 
 @pytest.mark.django_db
 def test_an_empty_pettycash_settings_row_does_not_count_as_done(
-    client, auth, entity, enable_module
+    client, auth, entity, enable_module, xero_unverifiable
 ):
     """The row exists before it is filled in, so presence is not completion."""
     enable_module(entity, "PETTY_CASH")

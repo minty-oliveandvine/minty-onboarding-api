@@ -205,3 +205,42 @@ def enable_module(db, modules):
         )
 
     return _enable
+
+
+# ---------------------------------------------------------------------------------------
+# NO NETWORK. Every outbound call in this service goes through `requests` -- the Flask
+# proxy in core/minty_client and the Xero token path in core/xero_tokens -- and none of
+# it may reach a real host from a test.
+#
+# This is not hygiene. Several state tests set `xero_org_id` without stubbing the Xero
+# path, so before this guard `access_token_for` really POSTed to XERO_TOKEN_SERVICE_URL.
+# With nothing on that port the call failed fast and read as "could not verify"; with a
+# dev Flask running it reached a real endpoint, and the suite's answer depended on what
+# was listening on localhost:5001. A test whose result depends on the developer's other
+# terminals is not a test.
+#
+# Tests that need a response stub `requests.request` / `requests.post` / `requests.get`
+# themselves (see test_minty_client.py, test_xero_tokens.py); this fixture makes the
+# unstubbed case loud.
+# ---------------------------------------------------------------------------------------
+
+
+class _NetworkBlocked(AssertionError):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    import requests
+
+    def _refuse(*args, **kwargs):
+        raise _NetworkBlocked(
+            "a test tried to make a real HTTP call; stub requests.request / .post / .get"
+        )
+
+    # `requests.request` is what minty_client uses; the verb helpers are what xero_tokens
+    # uses. Patching the Session would miss the module-level helpers, so all three are
+    # patched at the names the code actually calls.
+    monkeypatch.setattr(requests, "request", _refuse)
+    monkeypatch.setattr(requests, "post", _refuse)
+    monkeypatch.setattr(requests, "get", _refuse)

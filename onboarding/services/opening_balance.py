@@ -168,6 +168,16 @@ def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition)
                 id=str(uuid.uuid4()),
                 company=entity_id,
                 status=DRAFT,
+                # WHEN THE ROW WAS WRITTEN -- and it must not be omitted.
+                #
+                # Flask fills this from a PYTHON-side SQLAlchemy default, which Django
+                # cannot see, and the column has no server default. Leaving it out stores
+                # NULL, and Minty's dashboard does `datetime.now() - report.date` with no
+                # guard (blueprints/entity/routes/list.py) -- so one draft created here
+                # took the whole Select Company page down with a TypeError.
+                #
+                # Hong Kong, matching Flask's `datetime.now(tz)`, not UTC.
+                date=datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)),
                 transaction_date=tx_date,
                 next_transaction_date=tx_date + timedelta(days=1),
                 opening_balance=amount,
@@ -182,6 +192,10 @@ def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition)
                 total_sales=0.0,
                 bank_deposit=0.0,
                 expenses=0.0,
+                # The remaining Python-side defaults, so this row matches Flask's exactly.
+                xero_integrated_yes=False,
+                discrepancy_amount=0.0,
+                discrepancy_type="none",
                 uploaded_by=username,
                 # The opening is seeded here, but the user still STARTS their first report
                 # at the opening section so they can see and confirm it -- so the section is

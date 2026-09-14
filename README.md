@@ -11,6 +11,21 @@ The wizard frontend lives in a separate repo (`../onboarding`, Next.js, port 300
 
 Read these before changing anything. Each one has a failure behind it.
 
+### 0. A SQLAlchemy `default=` is invisible to Django. Check before every write.
+
+SQLAlchemy's `default=` is applied in Python on insert; only `server_default=` is a real DDL
+default. Django sees just the second. So a column Flask "always fills" can have no database
+default, and an insert here that omits it stores NULL.
+
+`report.date` is one: a Django-written draft stored NULL, and Minty's Select Company page —
+`datetime.now() - report.date`, no guard — took down the whole page with a TypeError.
+
+Neither the suite nor the parity sweep catches this: SQLite builds its tables from the
+mirrors, and parity only compares reads. `scripts/smoke_write.py` asserts it now.
+
+**Before writing any table, grep the Flask model for `default=` without `server_`, and set
+every one explicitly.**
+
 ### 1. Alembic owns the schema. This service ships no migrations.
 
 Every model in `shared_models/models.py` is `managed = False`, and there is no

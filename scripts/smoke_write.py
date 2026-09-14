@@ -246,6 +246,22 @@ def main():
                 f"addition={getattr(draft, 'cash_addition', None)}",
             )
             checks.ok(
+                "report.date is populated (Flask fills it via a PYTHON-side default)",
+                draft is not None and draft.date is not None,
+                "a NULL here takes down Minty's Select Company page: it does "
+                "`datetime.now() - report.date` with no guard",
+            )
+            checks.ok(
+                "the other Python-side defaults match what Flask would write",
+                draft is not None
+                and draft.xero_integrated_yes is False
+                and draft.discrepancy_amount == 0.0
+                and draft.discrepancy_type == "none",
+                f"got xero={getattr(draft,'xero_integrated_yes',None)} "
+                f"amount={getattr(draft,'discrepancy_amount',None)} "
+                f"type={getattr(draft,'discrepancy_type',None)}",
+            )
+            checks.ok(
                 "completed_sections round-trips through a Postgres json column",
                 draft is not None and draft.completed_sections == [],
                 "a plain `json` column (not jsonb) is pre-parsed by psycopg2 -- "
@@ -260,6 +276,18 @@ def main():
             checks.ok(
                 "no second draft was left behind",
                 Report.objects.filter(company=entity.id, status="draft").count() == 1,
+            )
+
+            # A standing check on the whole table, not just the row we just wrote:
+            # Flask's dashboard cannot survive a NULL here from ANY writer.
+            from django.db import connection as _conn
+            with _conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM report WHERE date IS NULL")
+                null_dates = cur.fetchone()[0]
+            checks.ok(
+                "no report row anywhere has a NULL date",
+                null_dates == 0,
+                f"{null_dates} row(s) would crash the Select Company page",
             )
 
             raise _Rollback()

@@ -41,6 +41,29 @@ letting creation write the safe default. ``onboarding/services/entity_create.py`
 it with a guard that raises rather than trusting the caller, so the boundary is mechanical
 and not a convention someone has to remember.
 
+DEFAULT TRAP: A SQLALCHEMY ``default=`` IS INVISIBLE TO DJANGO
+
+This one reached production, so read it before adding any write.
+
+SQLAlchemy distinguishes ``default=`` (applied in PYTHON, by SQLAlchemy, on insert) from
+``server_default=`` (a real DDL default). Django can only ever see the second. So a column
+Flask "always fills" may have no database-level default at all, and a Django insert that
+omits it stores NULL.
+
+``report.date`` is exactly that: ``db.Column(db.DateTime, default=lambda: datetime.now(tz))``,
+no server default. A draft created here without it stored NULL, and Minty's Select Company
+page -- which does ``datetime.now() - report.date`` with no guard -- died with a TypeError on
+the whole page for that user.
+
+NEITHER the test suite NOR the parity sweep could catch it: SQLite builds its tables from
+these models so the insert succeeded, and parity only compares READS. Only a real write
+followed by a real read from the other service would have shown it, which is what
+``scripts/smoke_write.py`` now asserts.
+
+So: before writing a table, check the Flask model for ``default=`` (without ``server_``) on
+every column, and fill each one explicitly. A row this service writes must be
+indistinguishable from a row Flask writes.
+
 TYPE TRAP: uuid columns come back as ``uuid.UUID``, not ``str``
 
 ``entities.currency_id``, ``currency_info.id`` and ``billing_plan.id`` are Postgres
@@ -466,9 +489,14 @@ class Report(models.Model):
     id = models.CharField(max_length=36, primary_key=True)
     company = models.CharField(max_length=150)
     status = models.CharField(max_length=20, null=True, blank=True)
+    # When the row was written. Flask fills this with a PYTHON-side SQLAlchemy default
+    # (`default=lambda: datetime.now(tz)`), and the column has no server default -- so a
+    # writer that omits it stores NULL and Minty's dashboard then does
+    # `datetime.now() - report.date` with no guard and raises. See the note in
+    # onboarding/services/opening_balance.py.
+    date = models.DateTimeField(null=True, blank=True)
     transaction_date = models.DateField(null=True, blank=True)
     next_transaction_date = models.DateField(null=True, blank=True)
-    date = models.DateTimeField(null=True, blank=True)
     opening_balance = models.FloatField(null=True, blank=True)
     cash_addition = models.FloatField(null=True, blank=True)
     adjusted_opening_balance = models.FloatField(null=True, blank=True)
@@ -485,6 +513,11 @@ class Report(models.Model):
     # FK to user.username, not user.id.
     uploaded_by = models.CharField(max_length=150, null=True, blank=True)
     # Where the user resumes inside the report form, and which sections they finished.
+    # Also Python-side defaults in Flask. Mirrored so a row written here is
+    # indistinguishable from one written there.
+    xero_integrated_yes = models.BooleanField(default=False, null=True, blank=True)
+    discrepancy_amount = models.FloatField(default=0.0, null=True, blank=True)
+    discrepancy_type = models.CharField(max_length=20, default="none", null=True, blank=True)
     current_section = models.CharField(max_length=50, null=True, blank=True)
     # TolerantJSONField, not JSONField -- this is a `json` column, not `jsonb`.
     completed_sections = TolerantJSONField(null=True, blank=True)

@@ -124,9 +124,9 @@ def test_modules_come_back_in_canonical_order(client, auth, entity, enable_modul
     Order is MODULE_CODES order, not insertion order -- the wizard renders the list
     directly.
     """
-    enable_module(entity, "BILL")
+    enable_module(entity, "PAYMENT_REQUEST")
     enable_module(entity, "PETTY_CASH")
-    assert state_of(client, auth, entity)["modules"] == ["PETTY_CASH", "BILL"]
+    assert state_of(client, auth, entity)["modules"] == ["PETTY_CASH", "PAYMENT_REQUEST"]
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
 
 @pytest.mark.django_db
 def test_bill_module_lands_on_bills(client, auth, entity, enable_module, xero_unverifiable):
-    enable_module(entity, "BILL")
+    enable_module(entity, "PAYMENT_REQUEST")
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_BILLS
@@ -346,14 +346,14 @@ def test_currency_is_empty_string_when_unset(client, auth, entity, modules):
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
 def test_a_confirmed_revoke_clears_connection_state(
-    client, auth, entity, modules, monkeypatch
+    client, auth, user, entity, modules, monkeypatch
 ):
     """Xero answered, and the tenant is gone. That is evidence -- clear local state."""
     org = str(uuid.uuid4())
     entity.xero_org_id = org
     entity.xero_tenant_name = "Gone Ltd"
     entity.status = "onboarding"
-    entity.connected_by_user_id = "someone"
+    entity.connected_by_user_id = user.id  # a uuid FK to user now
     entity.save()
 
     monkeypatch.setattr(

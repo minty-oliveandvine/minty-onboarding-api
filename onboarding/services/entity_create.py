@@ -68,8 +68,6 @@ DEFAULT_MODULE_STATE: dict[str, bool] = {code: False for code in MODULE_CODES}
 #: gate the wizard applies, so promoting them would widen standing for no requirement.
 CREATOR_ROLE = "admin"
 
-#: entity_function_map.created_by is 36 chars. Audit value for this path.
-ACTOR_ENTITY_CREATE = "entity_create"
 
 #: Fallback default methods for a database whose SaleInfo catalog has not been seeded.
 #: Cash leads and its type is 'Cash', NOT 'Electronic': the petty-cash closing-balance
@@ -147,7 +145,8 @@ def _seed_default_sales_methods(entity_id: str) -> None:
     )
 
 
-def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None) -> None:
+def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
+                          user_id=None) -> None:
     """Write one ``entity_function_map`` row per module, all disabled.
 
     THE GUARD: this refuses to write ``is_enabled=True``. Enabling a module is a
@@ -196,15 +195,13 @@ def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None) 
     now = datetime.now(timezone.utc)
     rows = [
         EntityFunctionMap(
-            id=str(uuid.uuid4()),
             entity_id=entity_id,
             entity_function_id=fn_id,
             # Explicit, always. The column's DATABASE default is `true`.
             is_enabled=False,
             enabled_at=None,
             disabled_at=now,
-            created_by=ACTOR_ENTITY_CREATE[:36],
-            # NOT NULL with no database default -- omitting these fails the insert.
+            created_by=str(user_id) if user_id else None,  # the person, never a label
             created_at=now,
             updated_at=now,
         )
@@ -292,7 +289,7 @@ def create_entity_for_user(
             approved=True,
         )
         _seed_default_sales_methods(entity.id)
-        _seed_module_defaults(entity.id)
+        _seed_module_defaults(entity.id, user_id=user_id)
 
     logger.info("onboarding: created entity %s for user %s", entity.id, user_id)
     return entity, True

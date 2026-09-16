@@ -117,8 +117,8 @@ def test_plans_lists_singles_and_excludes_the_bundle(client, auth, plans, module
     would render as a third selectable product.
     """
     body = client.get(PLANS, **auth).json()
-    assert [p["code"] for p in body["plans"]] == ["PETTY_CASH", "BILL"]
-    assert body["bundle_codes"] == ["BILL", "PETTY_CASH"]
+    assert [p["code"] for p in body["plans"]] == ["PETTY_CASH", "PAYMENT_REQUEST"]
+    assert body["bundle_codes"] == ["PAYMENT_REQUEST", "PETTY_CASH"]  # module codes, not the plan word
 
 
 @pytest.mark.django_db
@@ -184,7 +184,7 @@ def test_symbol_falls_back_to_the_code_when_unset(
         amount=28000, currency="JPY", interval_months=1, is_active=True,
     )
     body = client.get(PLANS, **auth).json()
-    bill = next(p for p in body["plans"] if p["code"] == "BILL")
+    bill = next(p for p in body["plans"] if p["code"] == "PAYMENT_REQUEST")
     assert bill["currency_symbol"] == "JPY"
 
 
@@ -224,7 +224,7 @@ def test_display_name_comes_from_the_module_catalog(client, auth, plans, modules
     """
     body = client.get(PLANS, **auth).json()
     names = {p["code"]: p["name"] for p in body["plans"]}
-    assert names == {"PETTY_CASH": "Petty Cash", "BILL": "Payment Request"}
+    assert names == {"PETTY_CASH": "Petty Cash", "PAYMENT_REQUEST": "Payment Request"}
 
 
 @pytest.mark.django_db
@@ -284,5 +284,5 @@ def test_largest_bundle_wins(client, auth, plans, modules, policy):
         amount=50000, currency="HKD", interval_months=1, is_active=True,
     )
     body = client.get(PLANS, **auth).json()
-    assert body["bundle_codes"] == ["BILL", "PAYROLL", "PETTY_CASH"]
+    assert body["bundle_codes"] == ["PAYMENT_REQUEST", "PAYROLL", "PETTY_CASH"]
     assert body["bundle_amount"] == 500.0

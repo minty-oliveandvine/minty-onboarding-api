@@ -77,8 +77,8 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 from django.db import models
 from django.db.models.functions import Now
 
-from shared_models.enums import EntityRole, SystemRole
-from shared_models.fields import PgEnumField
+from shared_models.enums import EntityRole, EntityStatus, ModuleCode, SystemRole
+from shared_models.fields import CharNField, PgEnumField
 
 
 class TolerantJSONField(models.JSONField):
@@ -152,8 +152,9 @@ class User(models.Model):
 class Entity(models.Model):
     """The company. WRITABLE -- onboarding creates and edits it.
 
-    ``status`` is 'onboarding' for the whole wizard and flips to 'active' at finalize
-    (which stays in Flask, because it also starts the trial).
+    ``status`` is the ``entity_status`` enum: 'onboarding' for the whole wizard, then
+    'connected' / 'disconnected' (a Xero org linked or not) from finalize on - finalize
+    stays in Flask, because it also starts the trial.
 
     ``onboarding_saved_step`` is the only column in the whole schema this service
     genuinely owns. It holds the FRONTEND step id (1-9) verbatim, not the backend's
@@ -161,37 +162,35 @@ class Entity(models.Model):
     lands the user on the wrong step.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
+    id = models.UUIDField(primary_key=True)
     name = models.CharField(max_length=100)
     # FKs into the registries, as plain columns: country_code is the ISO alpha-2
-    # country_info PK; currency_id is a uuid into currency_info(id). Alembic
-    # c8e0a2b4d6f8 / d0f2b4c6e8a0 reshaped both. Kept as scalar fields rather than
-    # Django ForeignKeys so a write never needs the related row loaded.
-    country_code = models.CharField(max_length=2, null=True, blank=True)
+    # country_info PK; currency_id is a uuid into currency_info(id). Kept as scalar
+    # fields rather than Django ForeignKeys so a write never needs the related row loaded.
+    country_code = CharNField(max_length=2, null=True, blank=True)
     currency_id = models.UUIDField(null=True, blank=True)
-    minimum_qty = models.IntegerField(null=True, blank=True)
-    deposit_frequency = models.IntegerField(null=True, blank=True)
-    deposit_day = models.IntegerField(null=True, blank=True)
     # Step 1 contact details for the COMPANY, not the person who signed up
     # (user.email is that, and one user can own several entities). Both optional.
     # The phone is stored digits-only.
-    contact_phone = models.CharField(max_length=20, null=True, blank=True)
+    contact_phone = models.CharField(max_length=36, null=True, blank=True)
     business_email = models.CharField(max_length=100, null=True, blank=True)
     xero_org_id = models.CharField(max_length=36, null=True, blank=True)
-    xero_short_code = models.CharField(max_length=50, null=True, blank=True)
     xero_tenant_name = models.CharField(max_length=255, null=True, blank=True)
     currency_format = models.CharField(max_length=30, null=True, blank=True)
     timezone = models.CharField(max_length=30, null=True, blank=True)
     note = models.TextField(null=True, blank=True)
-    status = models.CharField(max_length=20, default="active")
+    status = PgEnumField("entity_status", choices=EntityStatus.choices, default=EntityStatus.ONBOARDING)
     onboarding_saved_step = models.IntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    financial_year_end_day = models.SmallIntegerField(null=True, blank=True)
+    financial_year_end_month = models.SmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
     last_connected_at = models.DateTimeField(null=True, blank=True)
     last_accessed_at = models.DateTimeField(null=True, blank=True)
-    last_accessed_by_user_id = models.CharField(max_length=36, null=True, blank=True)
-    connected_by_user_id = models.CharField(max_length=36, null=True, blank=True)
-    period_lock_date = models.DateField(null=True, blank=True)
-    end_of_year_lock_date = models.DateField(null=True, blank=True)
+    last_accessed_by_user_id = models.UUIDField(null=True, blank=True)
+    connected_by_user_id = models.UUIDField(null=True, blank=True)
+    # minimum_qty / deposit_frequency / deposit_day / xero_short_code and the two Xero lock
+    # dates are gone with the schema redesign (item 15).
 
     class Meta:
         managed = False
@@ -240,8 +239,8 @@ class CountryInfo(models.Model):
     floated above the alphabetical tail.
     """
 
-    country_code = models.CharField(max_length=2, primary_key=True)
-    alpha3_code = models.CharField(max_length=3)
+    country_code = CharNField(max_length=2, primary_key=True)
+    alpha3_code = CharNField(max_length=3)
     country_name_en = models.CharField(max_length=100)
     currency_id = models.UUIDField(null=True, blank=True)
     phone_code = models.CharField(max_length=10, null=True, blank=True)
@@ -264,10 +263,10 @@ class CurrencyInfo(models.Model):
     """
 
     id = models.UUIDField(primary_key=True)
-    currency_code = models.CharField(max_length=3, unique=True)
+    currency_code = CharNField(max_length=3, unique=True)
     currency_name = models.CharField(max_length=100)
     symbol = models.CharField(max_length=10, default="")
-    decimal_places = models.IntegerField(default=2)
+    decimal_places = models.SmallIntegerField(default=2)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -290,11 +289,12 @@ class EntityFunction(models.Model):
     subscribed.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    function_code = models.CharField(max_length=100, unique=True)
+    id = models.UUIDField(primary_key=True)
+    function_code = PgEnumField("module_code", choices=ModuleCode.choices, unique=True)
     function_name = models.CharField(max_length=150)
     description = models.TextField(db_default="")
     is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(db_default=999)
 
     class Meta:
         managed = False
@@ -311,9 +311,10 @@ class EntityFunctionMap(models.Model):
     nothing in this service writes it.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, db_index=True)
-    entity_function_id = models.CharField(max_length=36)
+    # Keyed by (entity_id, entity_function_id) - the schema has no surrogate id.
+    pk = models.CompositePrimaryKey("entity_id", "entity_function_id")
+    entity_id = models.UUIDField(db_index=True)
+    entity_function_id = models.UUIDField()
     # DANGER: the DATABASE default for this column is `true`.
     #
     # A row inserted without naming is_enabled GRANTS the module. Every write here must
@@ -324,16 +325,13 @@ class EntityFunctionMap(models.Model):
     is_enabled = models.BooleanField(default=False)
     enabled_at = models.DateTimeField(null=True, blank=True)
     disabled_at = models.DateTimeField(null=True, blank=True)
-    # created_by has a database default (''), but Flask writes an actor value and losing
-    # the audit trail on rows this service creates would be a silent regression.
-    created_by = models.CharField(max_length=36, default="")
-    # BOTH NOT NULL WITH NO DATABASE DEFAULT. Omitting them from the mirror made the
-    # insert fail on Postgres with a not-null violation -- and passed the test suite,
-    # because SQLite builds its tables from these models and so the columns simply did
-    # not exist there. This is the exact class of bug scripts/parity.py and
-    # scripts/smoke_write.py exist to catch.
-    created_at = models.DateTimeField()
-    updated_at = models.DateTimeField()
+    # The person who first wrote the row (uuid FK to user, schema section 4) - the wizard
+    # user here; NULL for a job or the CLI. The reason (onboarding / cli) is not stored.
+    created_by = models.UUIDField(null=True, blank=True)
+    # NOT NULL DEFAULT now() in the schema; written explicitly here so a row's stamps are
+    # the same instant as its siblings'.
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
@@ -397,7 +395,7 @@ class BillingPolicy(models.Model):
     paid_cancel_access_days = models.IntegerField(default=30)
     past_due_window_days = models.IntegerField(default=15)
     retry_offsets_days = models.CharField(max_length=100, default="")
-    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(db_default=Now())  # NOT NULL DEFAULT now()
     updated_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:

@@ -29,6 +29,21 @@ def is_superadmin(system_role) -> bool:
     return word == SystemRole.SUPERADMIN or word in LEGACY_SUPERUSER
 
 
+class EntityStatus(models.TextChoices):
+    """``entity_status`` - in the wizard, or live with / without a Xero org linked."""
+
+    ONBOARDING = "onboarding"
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+
+
+class ModuleCode(models.TextChoices):
+    """``module_code`` - Minty's two modules (schema item 20). PAYMENT_REQUEST was BILL."""
+
+    PETTY_CASH = "PETTY_CASH"
+    PAYMENT_REQUEST = "PAYMENT_REQUEST"
+
+
 class EntityRole(models.TextChoices):
     """``entity_role`` — a person's role within one company (``user_entity.role``)."""
 

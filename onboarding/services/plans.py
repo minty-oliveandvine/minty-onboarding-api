@@ -37,15 +37,31 @@ import logging
 from shared_models.models import BillingPlan, BillingPolicy, EntityFunction
 
 from onboarding.services import money
+from shared_models.enums import ModuleCode
 
 logger = logging.getLogger("minty-onboarding")
 
-#: Canonical module codes, in display order. Keep in sync with Flask's
-#: blueprints/entity/services/modules.py MODULE_CODES and the catalog seeded by
-#: migration b8f3a2c1d4e5.
-MODULE_PETTY_CASH = "PETTY_CASH"
-MODULE_BILL = "BILL"
+#: Canonical module codes, in display order: the ``module_code`` enum
+#: (shared_models/enums.py, schema item 20). ``MODULE_BILL`` keeps its historical name.
+MODULE_PETTY_CASH = ModuleCode.PETTY_CASH.value
+MODULE_BILL = ModuleCode.PAYMENT_REQUEST.value
 MODULE_CODES = (MODULE_PETTY_CASH, MODULE_BILL)
+
+#: ``billing_plan.code`` keeps the word BILL for the Payment Request module by decision;
+#: the module code is PAYMENT_REQUEST. Mapped here, in one place (Flask:
+#: blueprints/subscription/services/billing.plan_code / plan_modules).
+PLAN_WORD_BY_MODULE = {"PAYMENT_REQUEST": "BILL"}
+MODULE_BY_PLAN_WORD = {v: k for k, v in PLAN_WORD_BY_MODULE.items()}
+
+
+def plan_modules(code: str) -> list[str]:
+    """Module codes a ``billing_plan.code`` bills, sorted: 'BILL+PETTY_CASH' ->
+    ['PAYMENT_REQUEST', 'PETTY_CASH']."""
+    return sorted(
+        MODULE_BY_PLAN_WORD.get(w, w)
+        for w in ((part or "").strip().upper() for part in (code or "").split("+"))
+        if w
+    )
 
 #: Shipped default if ``billing_policy`` has no row -- an app running before the
 #: migration, or a test database where it was never seeded. Quiet, because the default
@@ -103,7 +119,9 @@ def get_module_plan_catalog() -> dict:
 
     all_plans = _active_plans()
     singles = {
-        (p.code or "").upper(): p for p in all_plans if "+" not in (p.code or "")
+        plan_modules(p.code)[0]: p
+        for p in all_plans
+        if "+" not in (p.code or "") and plan_modules(p.code)
     }
 
     names = {
@@ -143,7 +161,7 @@ def get_module_plan_catalog() -> dict:
         bundle_amount = float(
             money.to_major(currencies, bundle.amount, bundle_currency)
         )
-        bundle_codes = sorted(c.upper() for c in (bundle.code or "").split("+"))
+        bundle_codes = plan_modules(bundle.code)
         bundle_currency = bundle_currency or None
 
     return {

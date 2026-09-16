@@ -74,7 +74,7 @@ def test_create_accepts_the_legacy_name_key(client, auth, modules):
 
 @pytest.mark.django_db
 def test_a_taken_name_is_409_not_400(client, auth, modules):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Taken Co", status="active")
+    Entity.objects.create(id=str(uuid.uuid4()), name="Taken Co", status="disconnected")
     resp = post_create(client, auth, entity_name="Taken Co")
     assert resp.status_code == 409
     # Flask's exact wording, missing plural included -- the wizard matches on it.
@@ -83,7 +83,7 @@ def test_a_taken_name_is_409_not_400(client, auth, modules):
 
 @pytest.mark.django_db
 def test_the_name_is_trimmed_before_the_uniqueness_check(client, auth, modules):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Trimmed Co", status="active")
+    Entity.objects.create(id=str(uuid.uuid4()), name="Trimmed Co", status="disconnected")
     assert post_create(client, auth, entity_name="  Trimmed Co  ").status_code == 409
 
 
@@ -127,7 +127,7 @@ def test_idempotency_does_not_match_a_finalized_company(client, auth, user, modu
     If it matched a finalized company, re-submitting Step 1 would silently rebind the wizard
     to a live company and start editing it. The correct answer is the name conflict.
     """
-    live = Entity.objects.create(id=str(uuid.uuid4()), name="Live Co", status="active")
+    live = Entity.objects.create(id=str(uuid.uuid4()), name="Live Co", status="disconnected")
     UserEntity.objects.create(user_id=user.id, entity_id=live.id, role="admin")
     resp = post_create(client, auth, entity_name="Live Co")
     assert resp.status_code == 409
@@ -176,17 +176,14 @@ def test_creation_seeds_every_module_disabled(client, auth, modules):
 
 
 @pytest.mark.django_db
-def test_the_seed_writes_the_audit_columns(client, auth, modules):
-    """``created_at`` / ``updated_at`` are NOT NULL with no database default.
-
-    Asserted here for documentation; only scripts/smoke_write.py can prove the insert
-    actually satisfies Postgres, because SQLite's tables come from these models.
-    """
+def test_the_seed_writes_the_audit_columns(client, auth, user, modules):
+    """The stamps are set, and ``created_by`` is the person who created the company
+    (a uuid FK to ``user``, schema section 4) - never a label like 'entity_create'."""
     entity_id = post_create(client, auth, entity_name="Audited Co").json()["entity_id"]
     for row in EntityFunctionMap.objects.filter(entity_id=entity_id):
         assert row.created_at is not None
         assert row.updated_at is not None
-        assert row.created_by == "entity_create"
+        assert str(row.created_by) == str(user.id)
 
 
 @pytest.mark.django_db
@@ -540,7 +537,7 @@ def test_resending_the_same_name_is_not_a_rename(client, user, entity, modules):
 
 @pytest.mark.django_db
 def test_renaming_to_a_taken_name_is_409(client, auth, entity, modules):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Other Co", status="active")
+    Entity.objects.create(id=str(uuid.uuid4()), name="Other Co", status="disconnected")
     resp = put_entity(client, auth, entity.id, entity_name="Other Co")
     assert resp.status_code == 409
     assert resp.json() == {"error": "Entity name already exist"}

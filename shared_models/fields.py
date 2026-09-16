@@ -10,6 +10,16 @@ psycopg2 sends the value as text and Postgres casts it to the enum, rejecting un
 from django.db import models
 
 
+class CharNField(models.CharField):
+    """``char(n)`` in Postgres (``country_code CHAR(2)``, ``currency_code CHAR(3)``); an
+    ordinary CharField everywhere else. The audit maps it to ``character``."""
+
+    def db_type(self, connection):
+        if connection.vendor == "postgresql":
+            return f"char({self.max_length})"
+        return super().db_type(connection)
+
+
 class PgEnumField(models.CharField):
     def __init__(self, pg_type: str, *args, **kwargs):
         self.pg_type = pg_type

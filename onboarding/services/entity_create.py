@@ -227,9 +227,15 @@ def find_resumable_entity(user_id, name: str) -> Entity | None:
     must not match a FINALIZED company, or re-submitting Step 1 would silently rebind the
     wizard to a live company and start editing it.
     """
-    entity_ids = UserEntity.objects.filter(user_id=str(user_id)).values_list(
-        "entity_id", flat=True
-    )
+    # Materialised, not a subquery: ``user_entity.entity_id`` is a UUIDField (C1) while
+    # ``Entity.id`` is still a CharField until C2, and SQLite stores the two spellings
+    # differently (32 hex chars vs hyphenated) -- an ``id__in=<queryset>`` matched nothing.
+    entity_ids = [
+        str(eid)
+        for eid in UserEntity.objects.filter(user_id=str(user_id)).values_list(
+            "entity_id", flat=True
+        )
+    ]
     return Entity.objects.filter(
         id__in=entity_ids, name=name, status="onboarding"
     ).first()

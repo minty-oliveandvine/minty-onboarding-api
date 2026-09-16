@@ -62,6 +62,7 @@ def user(db):
     return User.objects.create(
         id=str(uuid.uuid4()),
         email="wizard@example.com",
+        password="not-checked-here",
         first_name="Wiz",
         last_name="Ard",
         username="wizard@example.com",
@@ -76,6 +77,7 @@ def other_user(db):
     return User.objects.create(
         id=str(uuid.uuid4()),
         email="stranger@example.com",
+        password="not-checked-here",
         first_name="No",
         last_name="Access",
         username="stranger@example.com",

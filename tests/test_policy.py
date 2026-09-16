@@ -35,8 +35,12 @@ def person(**over):
 # --- is_superuser -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("system_role", ["superuser", "SUPERUSER", " Superuser "])
+@pytest.mark.parametrize(
+    "system_role", ["superadmin", "SUPERADMIN", " Superadmin ", "superuser", "SUPERUSER"]
+)
 def test_superuser_by_system_role_in_any_casing(system_role):
+    # ``superadmin`` is the database's word (system_role enum, C1); ``superuser`` is the
+    # pre-rename spelling that older JWTs still carry and is normalised to it.
     assert policy.is_superuser(person(system_role=system_role)) is True
 
 
@@ -137,7 +141,7 @@ def test_a_superuser_with_a_row_on_the_entity_gets_full_access(entity):
     distinguishes 'my company' from 'browsing a customer's'."""
     su = User.objects.create(
         id=str(uuid.uuid4()), email="su@example.com", username="su@example.com",
-        system_role="superuser", approved=True,
+        password="x", system_role="superadmin", approved=True,
     )
     UserEntity.objects.create(user_id=su.id, entity_id=entity.id, role="super_admin", approved=True)
     assert policy.is_superuser_readonly(su, entity.id) is False

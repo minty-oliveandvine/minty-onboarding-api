@@ -75,6 +75,10 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 """
 
 from django.db import models
+from django.db.models.functions import Now
+
+from shared_models.enums import EntityRole, SystemRole
+from shared_models.fields import PgEnumField
 
 
 class TolerantJSONField(models.JSONField):
@@ -122,15 +126,20 @@ class User(models.Model):
     sole refresher -- and a column that must not be read is better absent than present.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    email = models.CharField(max_length=100, unique=True)
-    first_name = models.CharField(max_length=150)
-    last_name = models.CharField(max_length=150)
+    id = models.UUIDField(primary_key=True)
+    email = models.CharField(max_length=254, unique=True, null=True, blank=True)
+    # Present so a test-mode insert satisfies the NOT NULL; never read here (Flask checks it).
+    password = models.CharField(max_length=255)
+    first_name = models.CharField(max_length=150, default="")
+    last_name = models.CharField(max_length=150, default="")
     username = models.CharField(max_length=150, unique=True)
-    system_role = models.CharField(max_length=20, default="normal")
+    system_role = PgEnumField("system_role", choices=SystemRole.choices, default=SystemRole.NORMAL)
+    is_active = models.BooleanField(default=True)
     approved = models.BooleanField(default=False)
-    created_at = models.DateTimeField(null=True, blank=True)
-    xero_entity_id = models.CharField(max_length=36, null=True, blank=True)
+    # NOT NULL DEFAULT now() in the schema; db_default lets an insert leave them to Postgres.
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+    # xero_entity_id is gone: which company a person connected is entities.connected_by_user_id
 
     class Meta:
         managed = False
@@ -205,11 +214,11 @@ class UserEntity(models.Model):
     """
 
     pk = models.CompositePrimaryKey("user_id", "entity_id")
-    user_id = models.CharField(max_length=36)
-    entity_id = models.CharField(max_length=36)
-    role = models.CharField(max_length=20)
+    user_id = models.UUIDField()
+    entity_id = models.UUIDField()
+    role = PgEnumField("entity_role", choices=EntityRole.choices)
     approved = models.BooleanField(default=True)
-    create_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
     joined_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -284,7 +293,7 @@ class EntityFunction(models.Model):
     id = models.CharField(max_length=36, primary_key=True)
     function_code = models.CharField(max_length=100, unique=True)
     function_name = models.CharField(max_length=150)
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(db_default="")
     is_active = models.BooleanField(default=True)
 
     class Meta:

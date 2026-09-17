@@ -44,6 +44,32 @@ class ModuleCode(models.TextChoices):
     PAYMENT_REQUEST = "PAYMENT_REQUEST"
 
 
+class ReportStatus(models.TextChoices):
+    """``report_status`` — onboarding writes ``draft`` (the opening draft) and reads the rest."""
+
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    PUBLISHED = "published"
+    VOID = "void"
+
+
+class PublishStatus(models.TextChoices):
+    """``publish_status`` — the Xero publish state of a report; onboarding never changes it."""
+
+    UNPUBLISHED = "unpublished"
+    PUBLISHING = "publishing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class DiscrepancyType(models.TextChoices):
+    """``discrepancy_type`` — the cash count against the expected balance."""
+
+    NONE = "none"
+    OVER = "over"
+    SHORT = "short"
+
+
 class SaleType(models.TextChoices):
     """``sale_type`` - the bucket a sales method belongs to. ``other`` replaced ``Cash``; the
     Cash method is the catalogue row whose ``value_name`` is ``cash_sales``."""

@@ -272,7 +272,7 @@ def test_the_amount_is_an_opening_balance_not_an_addition(client, auth, entity):
         {"entity_id": entity.id, "opening_date": date.today().isoformat(),
          "cash_addition": 900.0},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.opening_balance == 900.0
     assert draft.cash_addition == 0.0
     assert draft.adjusted_opening_balance == 900.0
@@ -286,7 +286,7 @@ def test_the_draft_starts_at_the_opening_section(client, auth, entity):
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 1},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.current_section == "opening"
     assert draft.completed_sections == []
 
@@ -298,7 +298,7 @@ def test_next_transaction_date_is_the_following_day(client, auth, entity):
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": today.isoformat(), "cash_addition": 1},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.next_transaction_date == today + timedelta(days=1)
 
 
@@ -323,8 +323,8 @@ def test_changing_the_date_moves_the_same_draft(client, auth, entity):
 
     assert b["created"] is False
     assert b["draft_id"] == a["draft_id"]
-    assert Report.objects.filter(company=entity.id).count() == 1
-    draft = Report.objects.get(company=entity.id)
+    assert Report.objects.filter(entity_id=entity.id).count() == 1
+    draft = Report.objects.get(entity_id=entity.id)
     assert draft.transaction_date == second
     assert draft.opening_balance == 250.0
 
@@ -341,11 +341,11 @@ def test_after_a_posted_report_the_key_becomes_the_exact_date(client, auth, enti
     target_day = date.today() - timedelta(days=1)
 
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=posted_day, opening_balance=0.0, cash_addition=0.0,
     )
     untouched = Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="draft",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
         transaction_date=other_day, opening_balance=777.0, cash_addition=0.0,
     )
 
@@ -365,7 +365,7 @@ def test_after_a_posted_report_the_key_becomes_the_exact_date(client, auth, enti
 def test_a_posted_report_on_the_same_date_is_409(client, auth, entity):
     day = date.today() - timedelta(days=1)
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=day, opening_balance=0.0, cash_addition=0.0,
     )
     resp = post_json(
@@ -377,11 +377,11 @@ def test_a_posted_report_on_the_same_date_is_409(client, auth, entity):
 
 
 @pytest.mark.django_db
-def test_a_null_status_report_counts_as_posted(client, auth, entity):
-    """Legacy rows predate the status column. NULL is not a draft."""
+def test_a_published_report_counts_as_posted(client, auth, entity):
+    """Any status but draft is a finished report (``status`` is NOT NULL since C4)."""
     day = date.today() - timedelta(days=1)
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status=None,
+        id=str(uuid.uuid4()), entity_id=entity.id, status="published",
         transaction_date=day, opening_balance=0.0, cash_addition=0.0,
     )
     resp = post_json(
@@ -460,14 +460,14 @@ def test_opening_balance_is_accepted_as_the_legacy_amount_key(client, auth, enti
 
 
 @pytest.mark.django_db
-def test_uploaded_by_records_the_username_not_the_id(client, auth, entity, user):
-    """``report.uploaded_by`` is an FK to ``user.username``, not to ``user.id``."""
+def test_created_by_records_the_person(client, auth, entity, user):
+    """``report.created_by`` is the person's id (was the username in ``uploaded_by``)."""
     post_json(
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(),
          "cash_addition": 1},
     )
-    assert Report.objects.get(company=entity.id).uploaded_by == user.username
+    assert str(Report.objects.get(entity_id=entity.id).created_by) == str(user.id)
 
 
 @pytest.mark.django_db

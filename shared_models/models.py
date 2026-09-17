@@ -77,7 +77,8 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 from django.db import models
 from django.db.models.functions import Now
 
-from shared_models.enums import EntityRole, EntityStatus, ModuleCode, SaleType, SystemRole
+from shared_models.enums import (DiscrepancyType, EntityRole, EntityStatus, ModuleCode, PublishStatus,
+                                 ReportStatus, SaleType, SystemRole)
 from shared_models.fields import CharNField, PgEnumField
 
 
@@ -413,23 +414,29 @@ class BillingPolicy(models.Model):
 # the wizard's resume step from them.
 # ---------------------------------------------------------------------------
 class EntityPettycashSettings(models.Model):
-    """Per-entity Xero account mappings for the petty-cash module.
+    """Per-entity Xero account mappings for the petty-cash module (``entity_pettycash_settings``).
 
-    ``entity_id`` is the primary key -- one row per entity, not an id column.
-
-    Group B reads one thing: whether ``pettycash_account_id`` is set, which is what
-    marks Step 6 (account codes) as done. All six account columns are mirrored now
-    because Group D writes them, and adding them later would mean touching this file
-    twice.
+    ``entity_id`` is the primary key -- one row per entity, not an id column. The account
+    and contact columns are FKs to the company's synced ``account_info`` /
+    ``xero_contact_sync`` rows (uuids); Group B reads whether ``pettycash_account_id`` is
+    set, which is what marks Step 6 (account codes) as done, and Group D writes the six
+    account columns.
     """
 
-    entity_id = models.CharField(max_length=36, primary_key=True)
-    pettycash_account_id = models.CharField(max_length=36, null=True, blank=True)
-    bank_account_id = models.CharField(max_length=36, null=True, blank=True)
-    cash_sale_account_id = models.CharField(max_length=36, null=True, blank=True)
-    discrepancy_bank_account_id = models.CharField(max_length=36, null=True, blank=True)
-    discrepancy_account_id = models.CharField(max_length=36, null=True, blank=True)
-    director_account_id = models.CharField(max_length=36, null=True, blank=True)
+    entity_id = models.UUIDField(primary_key=True)
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    pettycash_account_id = models.UUIDField(null=True, blank=True)
+    bank_account_id = models.UUIDField(null=True, blank=True)
+    cash_sale_account_id = models.UUIDField(null=True, blank=True)
+    discrepancy_bank_account_id = models.UUIDField(null=True, blank=True)
+    discrepancy_account_id = models.UUIDField(null=True, blank=True)
+    director_account_id = models.UUIDField(null=True, blank=True)
+    cash_sale_contact_id = models.UUIDField(null=True, blank=True)
+    director_contact_id = models.UUIDField(null=True, blank=True)
+    discrepancy_contact_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
@@ -465,72 +472,63 @@ class EntitySaleSetting(models.Model):
 
 
 class Report(models.Model):
-    """The petty-cash report table. Mirrored for ONE row: the opening draft.
+    """The petty-cash report (``report``). Mirrored for ONE row: the opening draft.
 
     Group B reads the entity's earliest ``status='draft'`` row to rehydrate the opening
-    balance the wizard captured at Step 5.
+    balance the wizard captured at Step 5, and writes it. Since C4 the columns are the
+    schema's: ``entity_id`` (was ``company``), ``created_by`` (a user id; was the username
+    in ``uploaded_by``), ``cashsale_total`` / ``nocashsale_total`` / ``expense_total`` (the
+    stored aggregates), enum-typed ``status`` / ``publishing_status`` / ``discrepancy_type``,
+    money as ``numeric(14,2)``, and the stamps have database defaults - so a row written
+    here is indistinguishable from one Flask writes.
 
-    STILL A PARTIAL MIRROR, but now WRITABLE, so the rule for what belongs here changed:
-    every column the insert must satisfy has to be present, not just the ones onboarding
-    reads.
-
-    Five of them are ``NOT NULL`` with no database default and were missing while this was
-    read-only: ``cash_sales``, ``shop_sales``, ``delivery_sales``, ``total_sales`` and
-    ``bank_deposit``. That is the same trap ``entity_function_map`` sprang -- a partial
-    mirror is safe for reads and a latent not-null violation for writes, and SQLite cannot
-    tell you, because it builds its tables from this file.
-
-    What stays out: the discrepancy fields, receipt files, Xero publishing state, and the
-    rest of the ~40-column petty-cash surface. Onboarding neither reads nor writes them,
-    and a mirror is a maintenance liability per column. If ``petty-cash-backend`` is ever
-    extracted, this table goes with it and onboarding asks that service for the draft.
-
-    ``company`` holds the ENTITY ID despite the name and the String(150) width -- it
-    predates the rename and is not a company name.
+    What stays out: the per-method sales, the expense lines, the cash count and the Xero
+    sync tables. If ``petty-cash-backend`` is ever extracted, this table goes with it and
+    onboarding asks that service for the draft.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    company = models.CharField(max_length=150)
-    status = models.CharField(max_length=20, null=True, blank=True)
-    # When the row was written. Flask fills this with a PYTHON-side SQLAlchemy default
-    # (`default=lambda: datetime.now(tz)`), and the column has no server default -- so a
-    # writer that omits it stores NULL and Minty's dashboard then does
-    # `datetime.now() - report.date` with no guard and raises. See the note in
-    # onboarding/services/opening_balance.py.
-    date = models.DateTimeField(null=True, blank=True)
-    transaction_date = models.DateField(null=True, blank=True)
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
+    transaction_date = models.DateField()
     next_transaction_date = models.DateField(null=True, blank=True)
-    opening_balance = models.FloatField(null=True, blank=True)
-    cash_addition = models.FloatField(null=True, blank=True)
-    adjusted_opening_balance = models.FloatField(null=True, blank=True)
-    # NOT NULL, no database default. Onboarding never sets a sale or a deposit, but the
-    # insert cannot omit them -- they are written as 0.0.
-    cash_sales = models.FloatField(default=0.0)
-    shop_sales = models.FloatField(default=0.0)
-    delivery_sales = models.FloatField(default=0.0)
-    total_sales = models.FloatField(default=0.0)
-    bank_deposit = models.FloatField(default=0.0)
-    # Nullable: NULL means "not entered yet", which 0.0 could not express.
-    expenses = models.FloatField(null=True, blank=True)
-    closing_balance = models.FloatField(null=True, blank=True)
-    # FK to user.username, not user.id.
-    uploaded_by = models.CharField(max_length=150, null=True, blank=True)
+    status = PgEnumField("report_status", choices=ReportStatus.choices, default=ReportStatus.DRAFT)
+    publishing_status = PgEnumField(
+        "publish_status", choices=PublishStatus.choices, default=PublishStatus.UNPUBLISHED
+    )
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cash_addition = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    adjusted_opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cashsale_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    nocashsale_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    total_sales = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # NULL means "not entered yet", which 0.0 could not express.
+    expense_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    bank_deposit = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    closing_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    safe_box_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    discrepancy_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    discrepancy_type = PgEnumField(
+        "discrepancy_type", choices=DiscrepancyType.choices, default=DiscrepancyType.NONE
+    )
+    discrepancy_reason = models.CharField(max_length=300, null=True, blank=True)
     # Where the user resumes inside the report form, and which sections they finished.
-    # Also Python-side defaults in Flask. Mirrored so a row written here is
-    # indistinguishable from one written there.
-    xero_integrated_yes = models.BooleanField(default=False, null=True, blank=True)
-    discrepancy_amount = models.FloatField(default=0.0, null=True, blank=True)
-    discrepancy_type = models.CharField(max_length=20, default="none", null=True, blank=True)
-    current_section = models.CharField(max_length=50, null=True, blank=True)
-    # TolerantJSONField, not JSONField -- this is a `json` column, not `jsonb`.
-    completed_sections = TolerantJSONField(null=True, blank=True)
+    current_section = models.CharField(max_length=20, null=True, blank=True)
+    completed_sections = models.JSONField(null=True, blank=True)
+    xero_integrated = models.BooleanField(null=True, blank=True)
+    # 'personal' | 'company': where the money ADDED to the float came from.
+    cash_addition_type = models.CharField(max_length=20, null=True, blank=True)
+    created_by = models.UUIDField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
         db_table = "report"
 
     def __str__(self):
-        return f"report {self.id} ({self.status}) for {self.company}"
+        return f"report {self.id} ({self.status}) for {self.entity_id}"
 
 
 class Invitation(models.Model):

@@ -181,11 +181,11 @@ def test_a_finalized_entity_reports_the_terminal_step(client, auth, entity, modu
     Asserted with no modules enabled, so it is clear the status wins rather than the data
     happening to justify step 9.
     """
-    entity.status = "active"
+    entity.status = "connected"  # the entity_status word for a finished company (C2)
     entity.save()
     body = state_of(client, auth, entity)
     assert body["current_step"] == step_defs.STEP_ALL_SET
-    assert body["status"] == "active"
+    assert body["status"] == "connected"
 
 
 @pytest.mark.django_db
@@ -457,7 +457,7 @@ def test_opening_balance_reads_the_earliest_draft(client, auth, entity, modules)
     """Earliest by transaction_date -- the opening one, not the most recent."""
     for offset, amount in [(5, 999.0), (0, 500.0)]:
         Report.objects.create(
-            id=str(uuid.uuid4()), company=entity.id, status="draft",
+            id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
             transaction_date=date.today() + timedelta(days=offset),
             opening_balance=amount, cash_addition=0.0,
         )
@@ -469,7 +469,7 @@ def test_opening_balance_reads_the_earliest_draft(client, auth, entity, modules)
 @pytest.mark.django_db
 def test_a_posted_report_is_not_the_opening_draft(client, auth, entity, modules):
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=date.today(), opening_balance=123.0, cash_addition=0.0,
     )
     assert state_of(client, auth, entity)["opening_balance"] is None

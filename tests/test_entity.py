@@ -10,6 +10,7 @@ which is exactly what happened with ``entity_function_map``. ``scripts/smoke_wri
 covers that and is not optional.
 """
 
+import os
 import uuid
 
 import pytest
@@ -397,6 +398,10 @@ def test_update_requires_membership(client, other_user, entity):
 
 
 @pytest.mark.django_db
+@pytest.mark.skipif(
+    bool(os.environ.get("MINTY_TEST_PG_URI")),
+    reason="user_entity.entity_id is a real FK on the schema: a membership of a missing entity cannot exist",
+)
 def test_update_404s_for_a_member_of_a_missing_entity(client, auth, user):
     ghost = str(uuid.uuid4())
     UserEntity.objects.create(user_id=user.id, entity_id=ghost, role="admin")

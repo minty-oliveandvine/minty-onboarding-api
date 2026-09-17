@@ -9,3 +9,5 @@ logs/
 .ruff_cache/
 .coverage
 htmlcov/
+.DS_Store
+.claude/

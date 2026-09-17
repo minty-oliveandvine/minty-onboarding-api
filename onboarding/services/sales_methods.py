@@ -15,7 +15,7 @@ The POST is a reconciliation against the submitted name lists, not a delete-and-
 Switching off rather than deleting is load-bearing: a method a shop stops accepting does not
 take its history with it -- ``report_sale`` rows still point at the catalogue row.
 
-THE CATALOGUE IS GLOBAL (C3 of Minty's docs/modernisation_plan.md)
+THE CATALOGUE IS GLOBAL (C3 of Minty's docs/modernisation/modernisation_plan.md)
 
 ``sale_info`` holds one row per method NAME for every company (``sale_name`` is unique);
 ``entity_sale_setting`` is the company's link to a row - on/off and order, nothing else. A

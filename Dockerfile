@@ -13,7 +13,7 @@ COPY . .
 
 RUN mkdir -p /app/logs
 
-# The entrypoint waits for the shared database and the pettycashv2 schema that Flask
+# The entrypoint waits for the shared database and the pettycashv3 schema that Flask
 # (Module 1) owns. `sed` strips CRLF so the script still runs when the repo is checked
 # out on Windows with autocrlf.
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

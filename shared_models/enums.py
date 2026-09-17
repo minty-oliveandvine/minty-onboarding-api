@@ -70,6 +70,15 @@ class DiscrepancyType(models.TextChoices):
     SHORT = "short"
 
 
+class InvitationStatus(models.TextChoices):
+    """``invitation_status`` — ``revoked`` is what the code called ``cancelled``."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
 class SaleType(models.TextChoices):
     """``sale_type`` - the bucket a sales method belongs to. ``other`` replaced ``Cash``; the
     Cash method is the catalogue row whose ``value_name`` is ``cash_sales``."""

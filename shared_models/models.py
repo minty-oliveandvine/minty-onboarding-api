@@ -77,8 +77,8 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 from django.db import models
 from django.db.models.functions import Now
 
-from shared_models.enums import (DiscrepancyType, EntityRole, EntityStatus, ModuleCode, PublishStatus,
-                                 ReportStatus, SaleType, SystemRole)
+from shared_models.enums import (DiscrepancyType, EntityRole, EntityStatus, InvitationStatus, ModuleCode,
+                                 PublishStatus, ReportStatus, SaleType, SystemRole)
 from shared_models.fields import CharNField, PgEnumField
 
 
@@ -532,18 +532,20 @@ class Report(models.Model):
 
 
 class Invitation(models.Model):
-    """A pending team invite. Group B lists them; Group E creates and cancels them."""
+    """A pending team invite (``invitation``; was ``invitations``). Group B lists them;
+    Group E creates and cancels them. ``status`` is the ``invitation_status`` enum -
+    a cancelled invite is ``revoked`` - and ``role`` the ``entity_role`` enum (C6)."""
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36)
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
     email = models.CharField(max_length=150)
-    role = models.CharField(max_length=20)
+    role = PgEnumField("entity_role", choices=EntityRole.choices)
     first_name = models.CharField(max_length=100, null=True, blank=True)
     last_name = models.CharField(max_length=100, null=True, blank=True)
     token = models.CharField(max_length=64, unique=True)
-    status = models.CharField(max_length=20, default="pending")
-    invited_by = models.CharField(max_length=36, null=True, blank=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    status = PgEnumField("invitation_status", choices=InvitationStatus.choices, default=InvitationStatus.PENDING)
+    invited_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
     accepted_at = models.DateTimeField(null=True, blank=True)
     # NULL means a legacy row that never expires. Set at creation to
     # created_at + INVITATION_TTL_DAYS, in Hong Kong time.
@@ -551,7 +553,7 @@ class Invitation(models.Model):
 
     class Meta:
         managed = False
-        db_table = "invitations"
+        db_table = "invitation"
 
     def __str__(self):
         return f"invite {self.email} -> {self.entity_id} ({self.status})"

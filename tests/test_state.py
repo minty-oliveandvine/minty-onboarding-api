@@ -493,7 +493,7 @@ def test_pending_invites_are_listed_for_a_super_admin(client, auth, entity, modu
 
 @pytest.mark.django_db
 def test_non_pending_invites_are_excluded(client, auth, entity, modules):
-    for status in ("accepted", "cancelled"):
+    for status in ("accepted", "revoked"):
         Invitation.objects.create(
             id=str(uuid.uuid4()), entity_id=entity.id, email=f"{status}@example.com",
             role="cashier", token=str(uuid.uuid4()), status=status,

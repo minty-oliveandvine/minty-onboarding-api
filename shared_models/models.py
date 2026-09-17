@@ -368,7 +368,7 @@ class BillingPlan(models.Model):
     code = models.CharField(max_length=200, unique=True)
     display_name = models.CharField(max_length=200)
     amount = models.IntegerField()
-    currency = models.CharField(max_length=3)
+    currency = CharNField(max_length=3)
     interval_months = models.IntegerField(default=1)
     is_active = models.BooleanField(default=True)
 

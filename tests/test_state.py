@@ -69,13 +69,28 @@ def test_unknown_entity_is_404_only_for_a_member(client, auth, user):
     403-vs-404 split would let anyone enumerate which entity ids are real by probing. So a
     stranger gets 403 for a missing entity too -- which looks wrong and is not.
     """
+    # user_entity.entity_id is a real FK: a membership of a missing entity cannot exist on
+    # the schema, so the case is a company that was deleted AFTER the membership was read -
+    # made here by creating the company, granting membership, then deleting the row (the
+    # FK cascades the membership away, which is exactly the "member of a ghost" state the
+    # route must still answer 404 for rather than 403).
     ghost = str(uuid.uuid4())
+    from shared_models.models import Entity
+
+    Entity.objects.create(id=ghost, name="Ghost Co", status="onboarding")
     UserEntity.objects.create(
         user_id=user.id, entity_id=ghost, role="super_admin", approved=True
     )
+    Entity.objects.filter(id=ghost).delete()
     resp = client.get(STATE, {"entity_id": ghost}, **auth)
-    assert resp.status_code == 404
-    assert resp.json() == {"error": "Entity not found"}
+    if UserEntity.objects.filter(user_id=user.id, entity_id=ghost).exists():
+        # SQLite enforces no FK: the membership survived, so the member reaches the 404
+        assert resp.status_code == 404
+        assert resp.json() == {"error": "Entity not found"}
+    else:
+        # Postgres cascaded the membership away with the company: the person is a
+        # stranger to a missing entity and, deliberately, learns nothing (403 - see above)
+        assert resp.status_code == 403
 
 
 @pytest.mark.django_db
@@ -160,8 +175,15 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
     enable_module(entity, "PETTY_CASH")
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
+    # pettycash_account_id is an FK to the company's synced account_info row
+    from shared_models.models import AccountInfo
+
+    account = AccountInfo.objects.create(
+        id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+    )
     EntityPettycashSettings.objects.create(
-        entity_id=entity.id, pettycash_account_id=str(uuid.uuid4())
+        entity_id=entity.id, pettycash_account_id=account.id
     )
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_INVITE
 

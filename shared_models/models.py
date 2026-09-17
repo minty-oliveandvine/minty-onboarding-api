@@ -413,6 +413,30 @@ class BillingPolicy(models.Model):
 # Writable from Group D/E onward; read-only for now, since Group B only derives
 # the wizard's resume step from them.
 # ---------------------------------------------------------------------------
+class AccountInfo(models.Model):
+    """A Xero account synced for one company (``account_info``). Read-only here: the
+    account-code step proxies to Flask, which owns the sync; ``entity_pettycash_settings``
+    points at these rows, which is why the mirror exists (a test cannot fill the settings
+    without one)."""
+
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
+    type = models.CharField(max_length=50)
+    name = models.CharField(max_length=80)
+    xero_account_id = models.CharField(max_length=36, null=True, blank=True)
+    xero_code = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=50, null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        managed = False
+        db_table = "account_info"
+
+    def __str__(self):
+        return f"{self.xero_code} {self.name}"
+
+
 class EntityPettycashSettings(models.Model):
     """Per-entity Xero account mappings for the petty-cash module (``entity_pettycash_settings``).
 

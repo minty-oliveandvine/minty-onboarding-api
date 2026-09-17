@@ -216,46 +216,44 @@ def test_a_missing_module_catalog_does_not_block_creation(client, auth):
 # Default sales methods
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_sales_methods_seed_from_the_catalog_when_present(client, auth, modules):
-    SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=None, code="CASH", name="Cash", type="Cash",
-        legacy_column="cash_sales", is_active=True, display_order=0,
+def test_a_new_company_is_linked_to_the_eleven_default_methods(client, auth, modules):
+    """Cash + seven electronic + three delivery, in that order; Cash is type 'other' keyed
+    cash_sales (the closing-balance figure is found by that key)."""
+    entity_id = post_create(client, auth, entity_name="Fresh Co").json()["entity_id"]
+    links = list(
+        EntitySaleSetting.objects.filter(entity_id=entity_id).select_related("sale")
+        .order_by("sale__type", "display_order")
     )
-    SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=None, code="VISA", name="Visa", type="Electronic",
-        legacy_column="visa_sales", is_active=True, display_order=1,
+    assert len(links) == 11
+    by_type = {}
+    for link in links:
+        by_type.setdefault(link.sale.type, []).append(link.sale.sale_name)
+    assert by_type["electronic"] == ["Visa", "Alipay", "WeChat Pay", "Mastercard", "UnionPay", "Amex", "Octopus"]
+    assert by_type["delivery"] == ["Food Panda", "Keeta", "OpenRice"]
+    cash = [l for l in links if l.sale.type == "other"]
+    assert len(cash) == 1 and cash[0].sale.sale_name == "Cash" and cash[0].sale.value_name == "cash_sales"
+    assert all(link.is_active for link in links)
+
+
+@pytest.mark.django_db
+def test_defaults_already_in_the_catalogue_are_linked_not_duplicated(client, auth, modules):
+    """A catalogue that already has Visa (any spelling) gets no second Visa row."""
+    visa = SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="VISA", type="electronic", value_name="visa_sales", enabled=True,
     )
     entity_id = post_create(client, auth, entity_name="Catalog Co").json()["entity_id"]
-    rows = EntitySaleSetting.objects.filter(entity_id=entity_id)
-    assert rows.count() == 2
-    assert {r.sale_name for r in rows} == {"Cash", "Visa"}
-    # sale_info_id is the link that eventually replaces value_name.
-    assert all(r.sale_info_id for r in rows)
+    assert SaleInfo.objects.filter(value_name="visa_sales").count() == 1
+    assert EntitySaleSetting.objects.filter(entity_id=entity_id, sale=visa).exists()
 
 
 @pytest.mark.django_db
-def test_an_entity_owned_catalog_row_is_not_a_global_default(client, auth, modules, entity):
-    """Only ``entity_id IS NULL`` rows are global. A custom method belongs to one company."""
-    SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, code="CUSTOM", name="Someone's Method",
-        type="Electronic", is_active=True, display_order=1,
-    )
+def test_another_companys_custom_method_is_not_a_default(client, auth, modules, entity):
+    """The catalogue is global, but a new company starts with the DEFAULT set only."""
+    SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Someone's Method", type="electronic", enabled=True)
     new_id = post_create(client, auth, entity_name="Other Co").json()["entity_id"]
-    names = {
-        r.sale_name for r in EntitySaleSetting.objects.filter(entity_id=new_id)
-    }
+    names = {l.sale.sale_name for l in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")}
     assert "Someone's Method" not in names
-
-
-@pytest.mark.django_db
-def test_the_fallback_list_is_used_when_the_catalog_is_empty(client, auth, modules):
-    entity_id = post_create(client, auth, entity_name="Fallback Co").json()["entity_id"]
-    rows = list(EntitySaleSetting.objects.filter(entity_id=entity_id))
-    assert len(rows) == 11
-    cash = [r for r in rows if r.type == "Cash"]
-    # Cash is typed 'Cash', NOT 'Electronic' -- the closing-balance figure is found by
-    # keying on that type, so misfiling it breaks the report arithmetic.
-    assert len(cash) == 1 and cash[0].sale_name == "Cash"
+    assert len(names) == 11
 
 
 # ---------------------------------------------------------------------------

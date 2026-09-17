@@ -44,6 +44,15 @@ class ModuleCode(models.TextChoices):
     PAYMENT_REQUEST = "PAYMENT_REQUEST"
 
 
+class SaleType(models.TextChoices):
+    """``sale_type`` - the bucket a sales method belongs to. ``other`` replaced ``Cash``; the
+    Cash method is the catalogue row whose ``value_name`` is ``cash_sales``."""
+
+    ELECTRONIC = "electronic"
+    DELIVERY = "delivery"
+    OTHER = "other"
+
+
 class EntityRole(models.TextChoices):
     """``entity_role`` — a person's role within one company (``user_entity.role``)."""
 

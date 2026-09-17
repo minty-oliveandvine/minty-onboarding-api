@@ -8,46 +8,39 @@ RECONCILE, NEVER REPLACE
 
 The POST is a reconciliation against the submitted name lists, not a delete-and-reinsert:
 
-  * a name already present is matched by ``(type, lowercased name)`` and UPDATED in place;
-  * a name absent from the list is SOFT-disabled (``enabled=False``), not deleted;
-  * a new name is inserted.
+  * a name already present (case-insensitively, in the catalogue) keeps its link, switched on;
+  * a name absent from the list is switched OFF (``is_active=False``), never deleted;
+  * a new name gets a catalogue row and a link.
 
-Both properties are load-bearing. Matching by name means a method keeps its ``value_name``
-and its catalog link across a rename, so historical reports still resolve the column their
-figures live in. Soft-disabling means a method a shop stops accepting does not take its
-history with it -- ``report_sale_detail`` rows still point at the catalog row.
+Switching off rather than deleting is load-bearing: a method a shop stops accepting does not
+take its history with it -- ``report_sale`` rows still point at the catalogue row.
 
-WHY A CUSTOM METHOD NEEDS A CATALOG ROW
+THE CATALOGUE IS GLOBAL (C3 of Minty's docs/modernisation_plan.md)
 
-The derived ``value_name`` for a user-typed method points at a physical column that does not
-exist -- "Tap & Go" becomes ``tap_&_go_sales``, and there is no such column on ``report``.
-The catalog link is what makes such a method storable at all, through
-``report_sale_detail`` rather than a column. So a name with no catalog match gets a
-per-entity ``sale_info`` row minted for it before the method row is written.
-
-``custom_code`` mirrors the expression the SQL backfill used, so a method minted here
-collides with -- and therefore dedupes against -- its backfilled counterpart instead of
-creating a second catalog row for the same thing.
+``sale_info`` holds one row per method NAME for every company (``sale_name`` is unique);
+``entity_sale_setting`` is the company's link to a row - on/off and order, nothing else. A
+name nobody has used before becomes a new catalogue row for everyone; a name another company
+already typed is simply linked. Types are the ``sale_type`` enum: ``electronic`` /
+``delivery`` / ``other`` (Cash lives in ``other``).
 """
 
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Value, When
 
 from core.exceptions import AccessDeniedError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
+from shared_models.enums import SaleType
 from shared_models.models import EntitySaleSetting, SaleInfo
 
 logger = logging.getLogger("minty-onboarding")
 
-#: The two types the wizard's Sales Setting step manages. 'Cash' is deliberately NOT here:
-#: it is seeded at entity creation, it is the only figure in the closing-balance formula,
-#: and it publishes to Xero against its own account -- so it is not something the user
-#: switches off from this screen.
-MANAGED_TYPES = ("Electronic", "Delivery")
+#: The two types the wizard's Sales Setting step manages. Cash (type 'other') is deliberately
+#: NOT here: it is linked at entity creation, it is the only figure in the closing-balance
+#: formula, and it publishes to Xero against its own account -- so it is not something the
+#: user switches off from this screen.
+MANAGED_TYPES = (SaleType.ELECTRONIC, SaleType.DELIVERY)
 
 
 def _clean(names) -> list[str]:
@@ -67,82 +60,59 @@ def _clean(names) -> list[str]:
     return out
 
 
-def custom_code(name) -> str:
-    """The catalog code for an entity-invented method name.
+def value_name_for(name: str) -> str:
+    """The form-field name a NEW method gets: "Tap & Go" -> ``tap_&_go_sales`` (the derivation
+    Minty has always used, so both services mint the same key)."""
+    return (name or "").strip().lower().replace(" ", "_") + "_sales"
 
-    Mirrors the SQL backfill's expression exactly. Changing it would stop new methods
-    deduping against backfilled rows and quietly create a second catalog row per method.
+
+def resolve_catalog_row(name: str) -> SaleInfo | None:
+    """The catalogue row for a display name, case-insensitively; None if nobody has it."""
+    text = (name or "").strip()
+    if not text:
+        return None
+    return SaleInfo.objects.filter(sale_name__iexact=text).first()
+
+
+def ensure_catalog_row(name: str, method_type, *, value_name=None, display_order=None) -> SaleInfo:
+    """Get-or-create the GLOBAL catalogue row for ``name``.
+
+    Does not commit -- the caller owns the transaction, so the catalogue row and the link
+    that references it land together or not at all.
     """
-    base = "".join(ch if ch.isalnum() else "_" for ch in (name or "").strip())
-    return ("CUSTOM_" + base.upper())[:49]
-
-
-def resolve_catalog_row(entity_id: str, name: str) -> SaleInfo | None:
-    """The catalog row this entity should use for ``name``, or None.
-
-    Prefers the entity's OWN row over the global one, so a custom method can shadow a
-    global code. Ordering by ``entity_id IS NOT NULL`` descending is what puts the
-    entity-owned row first and the global fallback second.
-    """
-    # ORDER BY on a computed rank rather than on entity_id itself: the global row has
-    # entity_id NULL, and NULL ordering differs between backends, so ranking explicitly is
-    # what makes "entity-owned wins" true on Postgres and on SQLite alike.
-    entity_owned_first = Case(
-        When(entity_id__isnull=True, then=Value(1)),
-        default=Value(0),
-        output_field=IntegerField(),
-    )
-    return (
-        SaleInfo.objects.filter(Q(entity_id=entity_id) | Q(entity_id__isnull=True))
-        .filter(name__iexact=(name or "").strip())
-        .annotate(_rank=entity_owned_first)
-        .order_by("_rank")
-        .first()
-    )
-
-
-def ensure_custom_catalog_row(entity_id: str, name: str, method_type: str) -> SaleInfo:
-    """Get-or-create the per-entity catalog row for a user-typed method.
-
-    Does not commit -- the caller owns the transaction, so the catalog row and the method
-    row that references it land together or not at all.
-    """
-    code = custom_code(name)
-    existing = SaleInfo.objects.filter(entity_id=entity_id, code=code).first()
+    existing = resolve_catalog_row(name)
     if existing is not None:
         return existing
+    clean = (name or "").strip() or "Custom"
     return SaleInfo.objects.create(
-        id=str(uuid.uuid4()),
-        entity_id=entity_id,
-        code=code,
-        name=(name or "").strip() or "Custom",
-        type=method_type or "Electronic",
-        # Custom methods have no physical column. This is the whole reason the catalog
-        # link exists -- see the module header.
-        legacy_column=None,
-        is_active=True,
-        display_order=0,
+        id=uuid.uuid4(),
+        sale_name=clean,
+        type=str(method_type or SaleType.OTHER),
+        value_name=value_name or value_name_for(clean),
+        display_order=display_order,
+        enabled=True,
     )
+
+
+def _links(entity_id: str, *, enabled_only: bool):
+    qs = EntitySaleSetting.objects.filter(entity_id=entity_id, sale__type__in=MANAGED_TYPES)
+    if enabled_only:
+        qs = qs.filter(is_active=True)
+    return qs.select_related("sale").order_by("display_order", "sale__sale_name")
 
 
 def grouped_methods(entity_id: str) -> dict:
-    """Enabled Electronic/Delivery method names, grouped by type. NO permission check.
+    """Enabled electronic / delivery method names, grouped by type. NO permission check.
 
     Split out from :func:`list_grouped` so ``/state`` can reuse the query without the
     permission gate -- resume must work for an invited cashier, who lacks
     SALES_METHOD_VIEW. Callers that ARE the sales-methods endpoint go through
     ``list_grouped``, which checks first.
     """
-    rows = (
-        EntitySaleSetting.objects.filter(
-            entity_id=entity_id, enabled=True, type__in=MANAGED_TYPES
-        )
-        .order_by("display_order", "create_date")
-        .values_list("type", "sale_name")
-    )
+    rows = [(link.sale.type, link.sale.sale_name) for link in _links(entity_id, enabled_only=True)]
     return {
-        "electronic": [name for typ, name in rows if typ == "Electronic"],
-        "delivery": [name for typ, name in rows if typ == "Delivery"],
+        "electronic": [name for typ, name in rows if typ == SaleType.ELECTRONIC],
+        "delivery": [name for typ, name in rows if typ == SaleType.DELIVERY],
     }
 
 
@@ -165,71 +135,32 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
     if not isinstance(electronic, list) or not isinstance(delivery, list):
         raise OnboardingValidationError("electronic and delivery must be arrays")
 
-    desired = {"Electronic": _clean(electronic), "Delivery": _clean(delivery)}
-    now = datetime.now(timezone.utc)
+    desired = {SaleType.ELECTRONIC: _clean(electronic), SaleType.DELIVERY: _clean(delivery)}
 
     with transaction.atomic():
-        existing = list(
-            EntitySaleSetting.objects.filter(entity_id=entity_id, type__in=MANAGED_TYPES)
-        )
-        by_key = {
-            (row.type, (row.sale_name or "").strip().lower()): row for row in existing
-        }
-
-        desired_keys: set[tuple[str, str]] = set()
+        by_sale_id = {link.sale_id: link for link in _links(entity_id, enabled_only=False)}
+        wanted: set = set()
         for method_type, names in desired.items():
             for index, name in enumerate(names):
-                key = (method_type, name.lower())
-                desired_keys.add(key)
-                row = by_key.get(key)
+                catalog = ensure_catalog_row(name, method_type)
+                wanted.add(catalog.id)
+                link = by_sale_id.get(catalog.id)
+                if link is None:
+                    link = EntitySaleSetting(entity_id=entity_id, sale=catalog)
+                    by_sale_id[catalog.id] = link
+                link.is_active = True
+                link.display_order = index + 1
+                link.save()
 
-                if row is not None:
-                    # Matched: update in place so value_name and the catalog link survive a
-                    # change of capitalisation or spacing.
-                    row.enabled = True
-                    row.sale_name = name
-                    row.display_order = index + 1
-                    row.updated_at = now
-                    row.save(
-                        update_fields=[
-                            "enabled", "sale_name", "display_order", "updated_at",
-                        ]
-                    )
-                    continue
-
-                catalog = resolve_catalog_row(entity_id, name)
-                if catalog is None:
-                    catalog = ensure_custom_catalog_row(entity_id, name, method_type)
-
-                EntitySaleSetting.objects.create(
-                    sale_id=str(uuid.uuid4()),
-                    entity_id=entity_id,
-                    sale_name=name,
-                    value_name=(
-                        catalog.legacy_column
-                        if catalog is not None and catalog.legacy_column
-                        else name.lower().replace(" ", "_") + "_sales"
-                    ),
-                    type=method_type,
-                    sale_info_id=catalog.id if catalog is not None else None,
-                    enabled=True,
-                    display_order=index + 1,
-                    create_date=now,
-                    updated_at=now,
-                )
-
-        # Anything previously enabled and now absent is SOFT-disabled. Never deleted --
-        # report_sale_detail rows still reference it.
-        for key, row in by_key.items():
-            if key not in desired_keys and row.enabled:
-                row.enabled = False
-                row.updated_at = now
-                row.save(update_fields=["enabled", "updated_at"])
+        # Anything previously enabled and now absent is switched off. Never deleted --
+        # report_sale rows still reference the catalogue row.
+        for sale_id, link in by_sale_id.items():
+            if sale_id not in wanted and link.is_active:
+                link.is_active = False
+                link.save(update_fields=["is_active"])
 
     logger.info(
         "sales methods: entity=%s electronic=%s delivery=%s",
-        entity_id,
-        len(desired["Electronic"]),
-        len(desired["Delivery"]),
+        entity_id, len(desired[SaleType.ELECTRONIC]), len(desired[SaleType.DELIVERY]),
     )
-    return desired
+    return {"electronic": desired[SaleType.ELECTRONIC], "delivery": desired[SaleType.DELIVERY]}

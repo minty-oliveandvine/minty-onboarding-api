@@ -16,7 +16,7 @@ import pytest
 from core import xero_tokens
 from onboarding.services import state as state_service
 from onboarding.services import steps as step_defs
-from shared_models.models import (EntityPettycashSettings, EntitySaleSetting,
+from shared_models.models import (EntityPettycashSettings, EntitySaleSetting, SaleInfo,
                                   Invitation, Report, UserEntity)
 from tests.conftest import make_token
 
@@ -422,13 +422,12 @@ def test_no_xero_org_does_not_call_xero_at_all(client, auth, entity, modules, mo
 def test_sales_methods_group_by_type_and_respect_display_order(
     client, auth, entity, modules
 ):
-    now = datetime.now(timezone.utc)
     for i, (typ, name) in enumerate(
-        [("Electronic", "Visa"), ("Delivery", "Foodpanda"), ("Electronic", "Octopus")]
+        [("electronic", "Visa"), ("delivery", "Foodpanda"), ("electronic", "Octopus")]
     ):
+        catalog = SaleInfo.objects.create(id=uuid.uuid4(), sale_name=name, type=typ, enabled=True)
         EntitySaleSetting.objects.create(
-            sale_id=str(uuid.uuid4()), entity_id=entity.id, type=typ, sale_name=name,
-            enabled=True, display_order=10 - i, create_date=now,
+            entity_id=entity.id, sale=catalog, is_active=True, display_order=10 - i,
         )
     methods = state_of(client, auth, entity)["sales_methods"]
     # display_order ascending: Octopus (8), Foodpanda (9), Visa (10)
@@ -438,15 +437,10 @@ def test_sales_methods_group_by_type_and_respect_display_order(
 
 @pytest.mark.django_db
 def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entity, modules):
-    now = datetime.now(timezone.utc)
-    EntitySaleSetting.objects.create(
-        sale_id=str(uuid.uuid4()), entity_id=entity.id, type="Electronic",
-        sale_name="Switched off", enabled=False, display_order=1, create_date=now,
-    )
-    EntitySaleSetting.objects.create(
-        sale_id=str(uuid.uuid4()), entity_id=entity.id, type="Cash",
-        sale_name="Cash", enabled=True, display_order=1, create_date=now,
-    )
+    off = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Switched off", type="electronic", enabled=True)
+    cash = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales", enabled=True)
+    EntitySaleSetting.objects.create(entity_id=entity.id, sale=off, is_active=False, display_order=1)
+    EntitySaleSetting.objects.create(entity_id=entity.id, sale=cash, is_active=True, display_order=1)
     assert state_of(client, auth, entity)["sales_methods"] == {
         "electronic": [],
         "delivery": [],

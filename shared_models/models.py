@@ -77,7 +77,7 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 from django.db import models
 from django.db.models.functions import Now
 
-from shared_models.enums import EntityRole, EntityStatus, ModuleCode, SystemRole
+from shared_models.enums import EntityRole, EntityStatus, ModuleCode, SaleType, SystemRole
 from shared_models.fields import CharNField, PgEnumField
 
 
@@ -440,32 +440,28 @@ class EntityPettycashSettings(models.Model):
 
 
 class EntitySaleSetting(models.Model):
-    """An entity's enabled sales/payment methods. PK is ``sale_id``, not ``id``.
+    """Which sales methods a company uses: a link from the company to a catalogue row
+    (``SaleInfo``), keyed ``(entity_id, sale_id)``, carrying only what is per-company - on/off
+    and the order on the sales page. Name, type and form-field name are the catalogue's.
 
-    Group B reads the Electronic and Delivery rows to rehydrate Step 5. Note that
-    Flask's docstring for that read says it reads "sale_info rows" -- it does not, it
-    reads this table. ``sale_info`` is the global catalog; this is the per-entity
-    selection, and the two are easy to confuse because a column here is also called
-    ``sale_info_id``.
+    Step 5 of the wizard reads and reconciles these rows (onboarding/services/sales_methods).
     """
 
-    sale_id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, null=True, blank=True)
-    type = models.CharField(max_length=50, null=True, blank=True)
-    sale_name = models.CharField(max_length=80, null=True, blank=True)
-    value_name = models.CharField(max_length=80, null=True, blank=True)
-    sale_info_id = models.CharField(max_length=36, null=True, blank=True)
-    create_date = models.DateTimeField(null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-    display_order = models.IntegerField(default=0, null=True, blank=True)
-    enabled = models.BooleanField(default=True, null=True, blank=True)
+    pk = models.CompositePrimaryKey("entity_id", "sale_id")
+    entity_id = models.UUIDField()
+    sale = models.ForeignKey(
+        "SaleInfo", on_delete=models.DO_NOTHING, db_column="sale_id", db_constraint=False,
+        related_name="entity_links",
+    )
+    is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(null=True, blank=True)
 
     class Meta:
         managed = False
         db_table = "entity_sale_setting"
 
     def __str__(self):
-        return f"{self.type}/{self.sale_name} for {self.entity_id}"
+        return f"{self.sale_id} for {self.entity_id} ({'on' if self.is_active else 'off'})"
 
 
 class Report(models.Model):
@@ -564,29 +560,28 @@ class Invitation(models.Model):
 
 
 class SaleInfo(models.Model):
-    """Read-only. The global catalog of sales/payment methods.
+    """The GLOBAL catalogue of sales/payment methods (``sale_name`` is unique): Visa, Alipay,
+    Foodpanda, Cash - and every name a company ever typed for itself. Which company uses
+    which is ``EntitySaleSetting``. ``value_name`` is the sales form's field name
+    (``visa_sales``); Cash is the row keyed ``cash_sales`` and its type is ``other``.
 
-    ``entity_id IS NULL`` is a global row available to every entity; a set ``entity_id`` is
-    a custom method owned by one entity. Group C reads the global rows to seed a new
-    entity's default methods.
-
-    ``legacy_column`` is a transition bridge to the physical ``*_sales`` columns on
-    ``report``. It is copied into ``entity_sale_setting.value_name`` because reads have not
-    all moved to ``sale_info_id`` yet. A NEW method must never need one.
+    Written here only when Step 5 meets a name nobody has used before.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, null=True, blank=True)
-    code = models.CharField(max_length=50)
-    name = models.CharField(max_length=80)
-    type = models.CharField(max_length=20)
-    legacy_column = models.CharField(max_length=50, null=True, blank=True)
-    is_active = models.BooleanField(default=True)
-    display_order = models.IntegerField(default=0)
+    CASH_VALUE_NAME = "cash_sales"
+
+    id = models.UUIDField(primary_key=True)
+    type = PgEnumField("sale_type", choices=SaleType.choices, default=SaleType.OTHER)
+    sale_name = models.CharField(max_length=80, unique=True)
+    value_name = models.CharField(max_length=80, null=True, blank=True)
+    display_order = models.IntegerField(null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
         db_table = "sale_info"
 
     def __str__(self):
-        return f"{self.type}/{self.name}"
+        return f"{self.type}/{self.sale_name}"

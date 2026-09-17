@@ -30,7 +30,7 @@ every one explicitly.**
 
 Every model in `shared_models/models.py` is `managed = False`, and there is no
 `migrations/` directory anywhere on purpose. The database is the same Postgres and the
-same `pettycashv2` schema that Flask owns, and Alembic in Minty is the owner-of-record
+same `pettycashv3` schema that Flask owns, and Alembic in Minty is the owner-of-record
 for all DDL.
 
 A new column means: **Alembic migration in Minty first, then hand-edit the model here.**

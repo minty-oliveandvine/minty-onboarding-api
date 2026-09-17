@@ -32,7 +32,7 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 # authentication is our own bearer scheme (core.auth) and authorisation our own
 # membership checks (core.permissions). There is no admin, no sessions, no
 # ContentType lookups. Installing them only made `migrate` want to CREATE TABLE
-# django_content_type / auth_* inside pettycashv2 -- a schema Alembic owns --
+# django_content_type / auth_* inside pettycashv3 -- a schema Alembic owns --
 # which fails on any database where those tables already exist.
 INSTALLED_APPS = [
     "corsheaders",
@@ -76,7 +76,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 # ---------------------------------------------------------------------------
 # Database -- the same database and schema the Flask app owns
 #
-# This service is a TENANT of pettycashv2, never its owner. Every model is
+# This service is a TENANT of pettycashv3, never its owner. Every model is
 # managed = False and this repo ships no migrations: Alembic in Minty is the
 # owner-of-record for all DDL. A new column means an Alembic migration there
 # first, then a hand-edit of the model here.
@@ -89,7 +89,7 @@ DATABASES = {
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "admin"),
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
-        "OPTIONS": {"options": "-c search_path=pettycashv2,public"},
+        "OPTIONS": {"options": "-c search_path=pettycashv3,public"},
     }
 }
 

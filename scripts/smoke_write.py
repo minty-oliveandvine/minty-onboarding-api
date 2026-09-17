@@ -70,7 +70,7 @@ def main():
     country = CountryInfo.objects.filter(is_active=True).order_by("country_code").first()
     currency = CurrencyInfo.objects.filter(is_active=True).order_by("currency_code").first()
 
-    print(f"Database  {connection.settings_dict['NAME']} (schema pettycashv2)")
+    print(f"Database  {connection.settings_dict['NAME']} (schema pettycashv3)")
     print(f"Actor     user={user_id}")
     print("All writes roll back at the end.\n")
 

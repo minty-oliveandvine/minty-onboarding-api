@@ -2,7 +2,7 @@
 
 EVERY MODEL HERE IS ``managed = False`` AND THIS REPO SHIPS NO MIGRATIONS.
 
-Alembic in Minty is the owner-of-record for all of pettycashv2. A new column means
+Alembic in Minty is the owner-of-record for all of pettycashv3. A new column means
 a migration there first, then a hand-edit here. That hand-sync is a real cost --
 billing-backend's equivalent file carries a docstring naming the Flask module and
 the Alembic revision that owns one column, because the drift is tracked by hand --
@@ -114,7 +114,7 @@ class TolerantJSONField(models.JSONField):
 # People and companies
 # ---------------------------------------------------------------------------
 class User(models.Model):
-    """Read-only mirror of pettycashv2.user, managed by the Flask app.
+    """Read-only mirror of pettycashv3.user, managed by the Flask app.
 
     Onboarding never writes a user: Flask owns registration, the email-OTP login and
     the ``itsdangerous`` session handoff. This exists so a verified JWT's ``user_id``

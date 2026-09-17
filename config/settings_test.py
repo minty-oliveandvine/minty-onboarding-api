@@ -29,7 +29,7 @@ if _PG_URI:
             "PASSWORD": _u.password or "",
             "HOST": _u.hostname or "localhost",
             "PORT": str(_u.port or 5432),
-            "OPTIONS": {"options": "-c search_path=pettycashv2,public"},
+            "OPTIONS": {"options": "-c search_path=pettycashv3,public"},
             # Never let pytest-django create/destroy a database of its own here; the
             # root conftest overrides django_db_setup and hands it the harness's build.
             "TEST": {"NAME": os.environ.get("MINTY_TEST_PG_DBNAME", "minty_test")},

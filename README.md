@@ -158,6 +158,11 @@ reason** or fix the code — never loosen the comparison.
 
 ---
 
+## Documentation
+
+[`docs/features/README.md`](docs/features/README.md) — one page per feature: the token
+verification and the permission port, and every `/api/onboarding/*` endpoint group.
+
 ## Running it
 
 ```sh

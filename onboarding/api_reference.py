@@ -132,8 +132,14 @@ def plans(request):
     pick their modules even when the price panel cannot render, because the trial is
     card-free and nothing is being charged at this step.
     """
+    if not settings.SUBSCRIPTION_ENABLED:
+        # Subscriptions dark (config.settings): nothing to quote. An empty list is what the
+        # wizard already treats as "no summary"; the flag lets it hide the billing sheet.
+        return {"plans": [], "subscriptions_enabled": False}
     try:
-        return plans_service.get_module_plan_catalog()
+        data = plans_service.get_module_plan_catalog()
+        data["subscriptions_enabled"] = True
+        return data
     except Exception:
         # Logged with a traceback, answered blandly. Ported from Flask, which does the
         # same rather than letting the generic 500 handler take it -- 503 tells the

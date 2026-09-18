@@ -58,6 +58,14 @@ MIDDLEWARE = [
 # ---------------------------------------------------------------------------
 ONBOARDING_APP_URL = os.environ.get("ONBOARDING_APP_URL", "http://localhost:3001")
 
+# The subscription feature switch, mirrored from Minty's ``SUBSCRIPTION_ENABLED``
+# (Minty/blueprints/shared/feature_flags.py) - the two services are deployed with the same
+# value. OFF unless set: production cut over to the redesigned schema with subscriptions
+# dark. Off, ``/plans`` answers an empty catalogue, ``/state`` says so, and the wizard shows
+# no price, no billing sheet and no trial copy; the proxied billing routes answer Flask's
+# own 404. Switching it on grants nothing.
+SUBSCRIPTION_ENABLED = (os.environ.get("SUBSCRIPTION_ENABLED") or "").strip().lower() in ("1", "true", "yes", "on")
+
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CORS_ALLOWED_ORIGINS", ONBOARDING_APP_URL).split(",")

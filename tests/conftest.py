@@ -62,6 +62,7 @@ def user(db):
     return User.objects.create(
         id=str(uuid.uuid4()),
         email="wizard@example.com",
+        password="not-checked-here",
         first_name="Wiz",
         last_name="Ard",
         username="wizard@example.com",
@@ -76,6 +77,7 @@ def other_user(db):
     return User.objects.create(
         id=str(uuid.uuid4()),
         email="stranger@example.com",
+        password="not-checked-here",
         first_name="No",
         last_name="Access",
         username="stranger@example.com",
@@ -107,22 +109,20 @@ def currencies(db):
 
 @pytest.fixture
 def countries(db):
-    CountryInfo.objects.create(
-        country_code="HK", alpha3_code="HKG", country_name_en="Hong Kong",
-        is_active=True, display_order=1,
-    )
-    CountryInfo.objects.create(
-        country_code="AU", alpha3_code="AUS", country_name_en="Australia",
-        is_active=True, display_order=999,
-    )
-    CountryInfo.objects.create(
-        country_code="AF", alpha3_code="AFG", country_name_en="Afghanistan",
-        is_active=True, display_order=999,
-    )
-    CountryInfo.objects.create(
-        country_code="XX", alpha3_code="XXX", country_name_en="Nowhere",
-        is_active=False, display_order=999,
-    )
+    """The country registry rows the tests name. ``get_or_create`` so a test that also uses
+    the ``entity`` fixture (which needs HK to satisfy ``fk_entities_country`` on Postgres)
+    does not insert HK twice."""
+    for code, alpha3, name, active, order in (
+        ("HK", "HKG", "Hong Kong", True, 1),
+        ("AU", "AUS", "Australia", True, 999),
+        ("AF", "AFG", "Afghanistan", True, 999),
+        ("XX", "XXX", "Nowhere", False, 999),
+    ):
+        CountryInfo.objects.get_or_create(
+            country_code=code,
+            defaults={"alpha3_code": alpha3, "country_name_en": name,
+                      "is_active": active, "display_order": order},
+        )
 
 
 @pytest.fixture
@@ -133,8 +133,8 @@ def modules(db):
             id=str(uuid.uuid4()), function_code="PETTY_CASH",
             function_name="Petty Cash", is_active=True,
         ),
-        "BILL": EntityFunction.objects.create(
-            id=str(uuid.uuid4()), function_code="BILL",
+        "PAYMENT_REQUEST": EntityFunction.objects.create(
+            id=str(uuid.uuid4()), function_code="PAYMENT_REQUEST",
             function_name="Payment Request", is_active=True,
         ),
     }
@@ -170,8 +170,10 @@ def policy(db):
 
 
 @pytest.fixture
-def entity(db, user):
-    """An in-progress onboarding entity the ``user`` fixture is a member of."""
+def entity(db, user, countries):
+    """An in-progress onboarding entity the ``user`` fixture is a member of.
+
+    ``countries`` because ``entities.country_code`` is a real FK on Postgres."""
     e = Entity.objects.create(
         id=str(uuid.uuid4()), name="Wizard Trading Co",
         country_code="HK", status="onboarding",
@@ -193,13 +195,12 @@ def enable_module(db, modules):
         # models, so it only enforces what the models happen to say.
         now = datetime.now(timezone.utc)
         return EntityFunctionMap.objects.create(
-            id=str(uuid.uuid4()),
             entity_id=entity.id,
             entity_function_id=modules[code].id,
             is_enabled=on,
             enabled_at=now if on else None,
             disabled_at=None if on else now,
-            created_by="test",
+            created_by=None,  # a person or NULL (schema section 4); a test fixture is nobody
             created_at=now,
             updated_at=now,
         )

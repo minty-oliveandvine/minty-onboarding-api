@@ -16,7 +16,7 @@ import pytest
 
 from core import minty_client
 from core.exceptions import UpstreamError
-from shared_models.models import EntitySaleSetting, Report, SaleInfo, UserEntity
+from shared_models.models import Entity, EntitySaleSetting, Report, SaleInfo, UserEntity
 from tests.conftest import make_token
 
 SALES = "/api/onboarding/sales-methods"
@@ -52,7 +52,7 @@ def get_methods(client, auth, entity):
 def test_setting_methods_returns_what_was_applied(client, auth, entity):
     resp = set_methods(client, auth, entity, electronic=["Visa", "Octopus"], delivery=["Keeta"])
     assert resp.status_code == 200
-    assert resp.json() == {"Electronic": ["Visa", "Octopus"], "Delivery": ["Keeta"]}
+    assert resp.json() == {"electronic": ["Visa", "Octopus"], "delivery": ["Keeta"]}
 
 
 @pytest.mark.django_db
@@ -92,32 +92,29 @@ def test_a_removed_method_is_soft_disabled_not_deleted(client, auth, entity):
     set_methods(client, auth, entity, electronic=["Visa", "Octopus"])
     set_methods(client, auth, entity, electronic=["Visa"])
 
-    octopus = EntitySaleSetting.objects.get(entity_id=entity.id, sale_name="Octopus")
-    assert octopus.enabled is False
+    octopus = EntitySaleSetting.objects.get(entity_id=entity.id, sale__sale_name="Octopus")
+    assert octopus.is_active is False
     assert get_methods(client, auth, entity)["electronic"] == ["Visa"]
 
 
 @pytest.mark.django_db
 def test_re_adding_a_disabled_method_revives_the_same_row(client, auth, entity):
     set_methods(client, auth, entity, electronic=["Visa"])
-    sale_id = EntitySaleSetting.objects.get(entity_id=entity.id, sale_name="Visa").sale_id
+    sale_id = EntitySaleSetting.objects.get(entity_id=entity.id, sale__sale_name="Visa").sale_id
     set_methods(client, auth, entity, electronic=[])
     set_methods(client, auth, entity, electronic=["Visa"])
-    revived = EntitySaleSetting.objects.get(entity_id=entity.id, sale_name="Visa")
+    revived = EntitySaleSetting.objects.get(entity_id=entity.id, sale__sale_name="Visa")
     assert revived.sale_id == sale_id
-    assert revived.enabled is True
+    assert revived.is_active is True
 
 
 @pytest.mark.django_db
-def test_a_rename_of_capitalisation_keeps_the_row_and_its_catalog_link(client, auth, entity):
-    """Matching is case-insensitive, so this is an UPDATE, not an insert-plus-disable.
-
-    That is what preserves ``value_name`` -- and therefore which report column the method's
-    historical figures live in -- across a change of spelling.
-    """
+def test_a_rename_of_capitalisation_keeps_the_link_and_the_catalogue_row(client, auth, entity):
+    """Matching is case-insensitive: "VISA" is the catalogue's "Visa", so the company's link
+    is kept (and with it the form-field name its historical figures are keyed by)."""
     SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=None, code="VISA", name="Visa",
-        type="Electronic", legacy_column="visa_sales", is_active=True, display_order=1,
+        id=uuid.uuid4(), sale_name="Visa", type="electronic", value_name="visa_sales",
+        enabled=True, display_order=1,
     )
     set_methods(client, auth, entity, electronic=["Visa"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
@@ -125,22 +122,21 @@ def test_a_rename_of_capitalisation_keeps_the_row_and_its_catalog_link(client, a
     set_methods(client, auth, entity, electronic=["VISA"])
     after = EntitySaleSetting.objects.get(entity_id=entity.id)
     assert after.sale_id == row.sale_id
-    assert after.sale_name == "VISA"
-    assert after.value_name == "visa_sales"
-    assert after.sale_info_id == row.sale_info_id
+    assert after.sale.sale_name == "Visa", "the catalogue keeps its spelling; nothing was renamed"
+    assert after.sale.value_name == "visa_sales"
 
 
 @pytest.mark.django_db
 def test_duplicate_names_are_collapsed_first_spelling_winning(client, auth, entity):
     resp = set_methods(client, auth, entity, electronic=["Visa", "VISA", "visa"])
-    assert resp.json()["Electronic"] == ["Visa"]
+    assert resp.json()["electronic"] == ["Visa"]
     assert EntitySaleSetting.objects.filter(entity_id=entity.id).count() == 1
 
 
 @pytest.mark.django_db
 def test_blank_names_are_dropped(client, auth, entity):
     resp = set_methods(client, auth, entity, electronic=["Visa", "", "   "])
-    assert resp.json()["Electronic"] == ["Visa"]
+    assert resp.json()["electronic"] == ["Visa"]
 
 
 @pytest.mark.django_db
@@ -160,69 +156,64 @@ def test_cash_is_untouched_by_this_screen(client, auth, entity):
     and it publishes to Xero against its own account -- so submitting an empty Electronic
     list must not disable it.
     """
-    EntitySaleSetting.objects.create(
-        sale_id=str(uuid.uuid4()), entity_id=entity.id, type="Cash", sale_name="Cash",
-        enabled=True, display_order=0, create_date=datetime.now(timezone.utc),
+    cash = SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales",
+        enabled=True, display_order=0,
     )
+    EntitySaleSetting.objects.create(entity_id=entity.id, sale=cash, is_active=True, display_order=0)
     set_methods(client, auth, entity, electronic=[], delivery=[])
-    assert EntitySaleSetting.objects.get(entity_id=entity.id, type="Cash").enabled is True
+    assert EntitySaleSetting.objects.get(entity_id=entity.id, sale=cash).is_active is True
 
 
 # ---------------------------------------------------------------------------
-# The custom catalog row
+# The catalogue row a typed name gets
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_a_user_typed_method_gets_a_catalog_row(client, auth, entity):
-    """WITHOUT ONE IT IS NOT STORABLE.
-
-    The derived value_name for "Tap & Go" is ``tap_&_go_sales`` and there is no such column
-    on ``report``. The catalog link is what lets the method's figures live in
-    ``report_sale_detail`` instead.
-    """
+def test_a_user_typed_method_gets_a_catalogue_row(client, auth, entity):
+    """WITHOUT ONE IT IS NOT STORABLE: a report's figures are ``report_sale`` rows pointing at
+    the catalogue. The row is global - the next company that types "Tap & Go" links to it."""
     set_methods(client, auth, entity, electronic=["Tap & Go"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
-    assert row.sale_info_id is not None
-
-    catalog = SaleInfo.objects.get(id=row.sale_info_id)
-    assert catalog.entity_id == entity.id
-    assert catalog.code == "CUSTOM_TAP___GO"
-    # Custom methods have no physical column, and that is the point.
-    assert catalog.legacy_column is None
+    catalog = row.sale
+    assert catalog.sale_name == "Tap & Go"
+    assert catalog.type == "electronic"
+    assert catalog.value_name == "tap_&_go_sales"  # the form-field name Minty derives too
 
 
 @pytest.mark.django_db
-def test_the_same_custom_name_does_not_mint_a_second_catalog_row(client, auth, entity):
+def test_the_same_custom_name_does_not_mint_a_second_catalogue_row(client, auth, entity):
     set_methods(client, auth, entity, electronic=["Tap & Go"])
     set_methods(client, auth, entity, electronic=[])
-    set_methods(client, auth, entity, electronic=["Tap & Go"])
-    assert SaleInfo.objects.filter(entity_id=entity.id).count() == 1
+    set_methods(client, auth, entity, electronic=["tap & go"])
+    assert SaleInfo.objects.filter(sale_name__iexact="Tap & Go").count() == 1
+    assert EntitySaleSetting.objects.filter(entity_id=entity.id).count() == 1
 
 
 @pytest.mark.django_db
-def test_a_global_catalog_row_is_preferred_over_minting_a_custom_one(client, auth, entity):
+def test_an_existing_catalogue_row_is_linked_rather_than_duplicated(client, auth, entity):
     SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=None, code="OCTOPUS", name="Octopus",
-        type="Electronic", legacy_column="octopus_sales", is_active=True, display_order=7,
+        id=uuid.uuid4(), sale_name="Octopus", type="electronic", value_name="octopus_sales",
+        enabled=True, display_order=7,
     )
     set_methods(client, auth, entity, electronic=["octopus"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
-    assert row.value_name == "octopus_sales"
-    assert SaleInfo.objects.filter(entity_id=entity.id).count() == 0
+    assert row.sale.value_name == "octopus_sales"
+    assert SaleInfo.objects.filter(sale_name__iexact="octopus").count() == 1
 
 
 @pytest.mark.django_db
-def test_an_entity_owned_row_shadows_the_global_one(client, auth, entity):
-    """Ranking, not NULL ordering -- which differs between Postgres and SQLite."""
-    SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=None, code="VISA", name="Visa",
-        type="Electronic", legacy_column="visa_sales", is_active=True, display_order=1,
-    )
-    mine = SaleInfo.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, code="CUSTOM_VISA", name="Visa",
-        type="Electronic", legacy_column=None, is_active=True, display_order=0,
-    )
-    set_methods(client, auth, entity, electronic=["Visa"])
-    assert EntitySaleSetting.objects.get(entity_id=entity.id).sale_info_id == mine.id
+def test_two_companies_share_one_catalogue_row(client, auth, user, entity, countries):
+    """The catalogue is global (sale_name is unique); each company's on/off is its own."""
+    other = Entity.objects.create(id=str(uuid.uuid4()), name="Other Co", country_code="HK", status="onboarding")
+    UserEntity.objects.create(user_id=user.id, entity_id=other.id, role="super_admin", approved=True)
+
+    set_methods(client, auth, entity, electronic=["Payme"])
+    set_methods(client, auth, other, electronic=["payme"])
+    assert SaleInfo.objects.filter(sale_name__iexact="payme").count() == 1
+
+    set_methods(client, auth, entity, electronic=[])
+    assert EntitySaleSetting.objects.get(entity_id=entity.id).is_active is False
+    assert EntitySaleSetting.objects.get(entity_id=other.id).is_active is True
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +272,7 @@ def test_the_amount_is_an_opening_balance_not_an_addition(client, auth, entity):
         {"entity_id": entity.id, "opening_date": date.today().isoformat(),
          "cash_addition": 900.0},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.opening_balance == 900.0
     assert draft.cash_addition == 0.0
     assert draft.adjusted_opening_balance == 900.0
@@ -295,7 +286,7 @@ def test_the_draft_starts_at_the_opening_section(client, auth, entity):
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 1},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.current_section == "opening"
     assert draft.completed_sections == []
 
@@ -307,7 +298,7 @@ def test_next_transaction_date_is_the_following_day(client, auth, entity):
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": today.isoformat(), "cash_addition": 1},
     )
-    draft = Report.objects.get(company=entity.id, status="draft")
+    draft = Report.objects.get(entity_id=entity.id, status="draft")
     assert draft.next_transaction_date == today + timedelta(days=1)
 
 
@@ -332,8 +323,8 @@ def test_changing_the_date_moves_the_same_draft(client, auth, entity):
 
     assert b["created"] is False
     assert b["draft_id"] == a["draft_id"]
-    assert Report.objects.filter(company=entity.id).count() == 1
-    draft = Report.objects.get(company=entity.id)
+    assert Report.objects.filter(entity_id=entity.id).count() == 1
+    draft = Report.objects.get(entity_id=entity.id)
     assert draft.transaction_date == second
     assert draft.opening_balance == 250.0
 
@@ -350,11 +341,11 @@ def test_after_a_posted_report_the_key_becomes_the_exact_date(client, auth, enti
     target_day = date.today() - timedelta(days=1)
 
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=posted_day, opening_balance=0.0, cash_addition=0.0,
     )
     untouched = Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="draft",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
         transaction_date=other_day, opening_balance=777.0, cash_addition=0.0,
     )
 
@@ -374,7 +365,7 @@ def test_after_a_posted_report_the_key_becomes_the_exact_date(client, auth, enti
 def test_a_posted_report_on_the_same_date_is_409(client, auth, entity):
     day = date.today() - timedelta(days=1)
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=day, opening_balance=0.0, cash_addition=0.0,
     )
     resp = post_json(
@@ -386,11 +377,11 @@ def test_a_posted_report_on_the_same_date_is_409(client, auth, entity):
 
 
 @pytest.mark.django_db
-def test_a_null_status_report_counts_as_posted(client, auth, entity):
-    """Legacy rows predate the status column. NULL is not a draft."""
+def test_a_published_report_counts_as_posted(client, auth, entity):
+    """Any status but draft is a finished report (``status`` is NOT NULL since C4)."""
     day = date.today() - timedelta(days=1)
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status=None,
+        id=str(uuid.uuid4()), entity_id=entity.id, status="published",
         transaction_date=day, opening_balance=0.0, cash_addition=0.0,
     )
     resp = post_json(
@@ -469,14 +460,14 @@ def test_opening_balance_is_accepted_as_the_legacy_amount_key(client, auth, enti
 
 
 @pytest.mark.django_db
-def test_uploaded_by_records_the_username_not_the_id(client, auth, entity, user):
-    """``report.uploaded_by`` is an FK to ``user.username``, not to ``user.id``."""
+def test_created_by_records_the_person(client, auth, entity, user):
+    """``report.created_by`` is the person's id (was the username in ``uploaded_by``)."""
     post_json(
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(),
          "cash_addition": 1},
     )
-    assert Report.objects.get(company=entity.id).uploaded_by == user.username
+    assert str(Report.objects.get(entity_id=entity.id).created_by) == str(user.id)
 
 
 @pytest.mark.django_db

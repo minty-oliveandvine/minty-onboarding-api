@@ -2,7 +2,7 @@
 
 EVERY MODEL HERE IS ``managed = False`` AND THIS REPO SHIPS NO MIGRATIONS.
 
-Alembic in Minty is the owner-of-record for all of pettycashv2. A new column means
+Alembic in Minty is the owner-of-record for all of pettycashv3. A new column means
 a migration there first, then a hand-edit here. That hand-sync is a real cost --
 billing-backend's equivalent file carries a docstring naming the Flask module and
 the Alembic revision that owns one column, because the drift is tracked by hand --
@@ -75,6 +75,11 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 """
 
 from django.db import models
+from django.db.models.functions import Now
+
+from shared_models.enums import (DiscrepancyType, EntityRole, EntityStatus, InvitationStatus, ModuleCode,
+                                 PublishStatus, ReportStatus, SaleType, SystemRole)
+from shared_models.fields import CharNField, PgEnumField
 
 
 class TolerantJSONField(models.JSONField):
@@ -110,7 +115,7 @@ class TolerantJSONField(models.JSONField):
 # People and companies
 # ---------------------------------------------------------------------------
 class User(models.Model):
-    """Read-only mirror of pettycashv2.user, managed by the Flask app.
+    """Read-only mirror of pettycashv3.user, managed by the Flask app.
 
     Onboarding never writes a user: Flask owns registration, the email-OTP login and
     the ``itsdangerous`` session handoff. This exists so a verified JWT's ``user_id``
@@ -122,15 +127,20 @@ class User(models.Model):
     sole refresher -- and a column that must not be read is better absent than present.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    email = models.CharField(max_length=100, unique=True)
-    first_name = models.CharField(max_length=150)
-    last_name = models.CharField(max_length=150)
+    id = models.UUIDField(primary_key=True)
+    email = models.CharField(max_length=254, unique=True, null=True, blank=True)
+    # Present so a test-mode insert satisfies the NOT NULL; never read here (Flask checks it).
+    password = models.CharField(max_length=255)
+    first_name = models.CharField(max_length=150, default="")
+    last_name = models.CharField(max_length=150, default="")
     username = models.CharField(max_length=150, unique=True)
-    system_role = models.CharField(max_length=20, default="normal")
+    system_role = PgEnumField("system_role", choices=SystemRole.choices, default=SystemRole.NORMAL)
+    is_active = models.BooleanField(default=True)
     approved = models.BooleanField(default=False)
-    created_at = models.DateTimeField(null=True, blank=True)
-    xero_entity_id = models.CharField(max_length=36, null=True, blank=True)
+    # NOT NULL DEFAULT now() in the schema; db_default lets an insert leave them to Postgres.
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+    # xero_entity_id is gone: which company a person connected is entities.connected_by_user_id
 
     class Meta:
         managed = False
@@ -143,8 +153,9 @@ class User(models.Model):
 class Entity(models.Model):
     """The company. WRITABLE -- onboarding creates and edits it.
 
-    ``status`` is 'onboarding' for the whole wizard and flips to 'active' at finalize
-    (which stays in Flask, because it also starts the trial).
+    ``status`` is the ``entity_status`` enum: 'onboarding' for the whole wizard, then
+    'connected' / 'disconnected' (a Xero org linked or not) from finalize on - finalize
+    stays in Flask, because it also starts the trial.
 
     ``onboarding_saved_step`` is the only column in the whole schema this service
     genuinely owns. It holds the FRONTEND step id (1-9) verbatim, not the backend's
@@ -152,37 +163,35 @@ class Entity(models.Model):
     lands the user on the wrong step.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
+    id = models.UUIDField(primary_key=True)
     name = models.CharField(max_length=100)
     # FKs into the registries, as plain columns: country_code is the ISO alpha-2
-    # country_info PK; currency_id is a uuid into currency_info(id). Alembic
-    # c8e0a2b4d6f8 / d0f2b4c6e8a0 reshaped both. Kept as scalar fields rather than
-    # Django ForeignKeys so a write never needs the related row loaded.
-    country_code = models.CharField(max_length=2, null=True, blank=True)
+    # country_info PK; currency_id is a uuid into currency_info(id). Kept as scalar
+    # fields rather than Django ForeignKeys so a write never needs the related row loaded.
+    country_code = CharNField(max_length=2, null=True, blank=True)
     currency_id = models.UUIDField(null=True, blank=True)
-    minimum_qty = models.IntegerField(null=True, blank=True)
-    deposit_frequency = models.IntegerField(null=True, blank=True)
-    deposit_day = models.IntegerField(null=True, blank=True)
     # Step 1 contact details for the COMPANY, not the person who signed up
     # (user.email is that, and one user can own several entities). Both optional.
     # The phone is stored digits-only.
-    contact_phone = models.CharField(max_length=20, null=True, blank=True)
+    contact_phone = models.CharField(max_length=36, null=True, blank=True)
     business_email = models.CharField(max_length=100, null=True, blank=True)
     xero_org_id = models.CharField(max_length=36, null=True, blank=True)
-    xero_short_code = models.CharField(max_length=50, null=True, blank=True)
     xero_tenant_name = models.CharField(max_length=255, null=True, blank=True)
     currency_format = models.CharField(max_length=30, null=True, blank=True)
     timezone = models.CharField(max_length=30, null=True, blank=True)
     note = models.TextField(null=True, blank=True)
-    status = models.CharField(max_length=20, default="active")
+    status = PgEnumField("entity_status", choices=EntityStatus.choices, default=EntityStatus.ONBOARDING)
     onboarding_saved_step = models.IntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    financial_year_end_day = models.SmallIntegerField(null=True, blank=True)
+    financial_year_end_month = models.SmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
     last_connected_at = models.DateTimeField(null=True, blank=True)
     last_accessed_at = models.DateTimeField(null=True, blank=True)
-    last_accessed_by_user_id = models.CharField(max_length=36, null=True, blank=True)
-    connected_by_user_id = models.CharField(max_length=36, null=True, blank=True)
-    period_lock_date = models.DateField(null=True, blank=True)
-    end_of_year_lock_date = models.DateField(null=True, blank=True)
+    last_accessed_by_user_id = models.UUIDField(null=True, blank=True)
+    connected_by_user_id = models.UUIDField(null=True, blank=True)
+    # minimum_qty / deposit_frequency / deposit_day / xero_short_code and the two Xero lock
+    # dates are gone with the schema redesign (item 15).
 
     class Meta:
         managed = False
@@ -205,11 +214,11 @@ class UserEntity(models.Model):
     """
 
     pk = models.CompositePrimaryKey("user_id", "entity_id")
-    user_id = models.CharField(max_length=36)
-    entity_id = models.CharField(max_length=36)
-    role = models.CharField(max_length=20)
+    user_id = models.UUIDField()
+    entity_id = models.UUIDField()
+    role = PgEnumField("entity_role", choices=EntityRole.choices)
     approved = models.BooleanField(default=True)
-    create_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
     joined_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -231,8 +240,8 @@ class CountryInfo(models.Model):
     floated above the alphabetical tail.
     """
 
-    country_code = models.CharField(max_length=2, primary_key=True)
-    alpha3_code = models.CharField(max_length=3)
+    country_code = CharNField(max_length=2, primary_key=True)
+    alpha3_code = CharNField(max_length=3)
     country_name_en = models.CharField(max_length=100)
     currency_id = models.UUIDField(null=True, blank=True)
     phone_code = models.CharField(max_length=10, null=True, blank=True)
@@ -255,10 +264,10 @@ class CurrencyInfo(models.Model):
     """
 
     id = models.UUIDField(primary_key=True)
-    currency_code = models.CharField(max_length=3, unique=True)
+    currency_code = CharNField(max_length=3, unique=True)
     currency_name = models.CharField(max_length=100)
     symbol = models.CharField(max_length=10, default="")
-    decimal_places = models.IntegerField(default=2)
+    decimal_places = models.SmallIntegerField(default=2)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -281,11 +290,12 @@ class EntityFunction(models.Model):
     subscribed.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    function_code = models.CharField(max_length=100, unique=True)
+    id = models.UUIDField(primary_key=True)
+    function_code = PgEnumField("module_code", choices=ModuleCode.choices, unique=True)
     function_name = models.CharField(max_length=150)
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(db_default="")
     is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(db_default=999)
 
     class Meta:
         managed = False
@@ -302,9 +312,10 @@ class EntityFunctionMap(models.Model):
     nothing in this service writes it.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, db_index=True)
-    entity_function_id = models.CharField(max_length=36)
+    # Keyed by (entity_id, entity_function_id) - the schema has no surrogate id.
+    pk = models.CompositePrimaryKey("entity_id", "entity_function_id")
+    entity_id = models.UUIDField(db_index=True)
+    entity_function_id = models.UUIDField()
     # DANGER: the DATABASE default for this column is `true`.
     #
     # A row inserted without naming is_enabled GRANTS the module. Every write here must
@@ -315,16 +326,13 @@ class EntityFunctionMap(models.Model):
     is_enabled = models.BooleanField(default=False)
     enabled_at = models.DateTimeField(null=True, blank=True)
     disabled_at = models.DateTimeField(null=True, blank=True)
-    # created_by has a database default (''), but Flask writes an actor value and losing
-    # the audit trail on rows this service creates would be a silent regression.
-    created_by = models.CharField(max_length=36, default="")
-    # BOTH NOT NULL WITH NO DATABASE DEFAULT. Omitting them from the mirror made the
-    # insert fail on Postgres with a not-null violation -- and passed the test suite,
-    # because SQLite builds its tables from these models and so the columns simply did
-    # not exist there. This is the exact class of bug scripts/parity.py and
-    # scripts/smoke_write.py exist to catch.
-    created_at = models.DateTimeField()
-    updated_at = models.DateTimeField()
+    # The person who first wrote the row (uuid FK to user, schema section 4) - the wizard
+    # user here; NULL for a job or the CLI. The reason (onboarding / cli) is not stored.
+    created_by = models.UUIDField(null=True, blank=True)
+    # NOT NULL DEFAULT now() in the schema; written explicitly here so a row's stamps are
+    # the same instant as its siblings'.
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
@@ -360,7 +368,7 @@ class BillingPlan(models.Model):
     code = models.CharField(max_length=200, unique=True)
     display_name = models.CharField(max_length=200)
     amount = models.IntegerField()
-    currency = models.CharField(max_length=3)
+    currency = CharNField(max_length=3)
     interval_months = models.IntegerField(default=1)
     is_active = models.BooleanField(default=True)
 
@@ -388,7 +396,7 @@ class BillingPolicy(models.Model):
     paid_cancel_access_days = models.IntegerField(default=30)
     past_due_window_days = models.IntegerField(default=15)
     retry_offsets_days = models.CharField(max_length=100, default="")
-    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(db_default=Now())  # NOT NULL DEFAULT now()
     updated_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
@@ -405,24 +413,54 @@ class BillingPolicy(models.Model):
 # Writable from Group D/E onward; read-only for now, since Group B only derives
 # the wizard's resume step from them.
 # ---------------------------------------------------------------------------
+class AccountInfo(models.Model):
+    """A Xero account synced for one company (``account_info``). Read-only here: the
+    account-code step proxies to Flask, which owns the sync; ``entity_pettycash_settings``
+    points at these rows, which is why the mirror exists (a test cannot fill the settings
+    without one)."""
+
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
+    type = models.CharField(max_length=50)
+    name = models.CharField(max_length=80)
+    xero_account_id = models.CharField(max_length=36, null=True, blank=True)
+    xero_code = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=50, null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        managed = False
+        db_table = "account_info"
+
+    def __str__(self):
+        return f"{self.xero_code} {self.name}"
+
+
 class EntityPettycashSettings(models.Model):
-    """Per-entity Xero account mappings for the petty-cash module.
+    """Per-entity Xero account mappings for the petty-cash module (``entity_pettycash_settings``).
 
-    ``entity_id`` is the primary key -- one row per entity, not an id column.
-
-    Group B reads one thing: whether ``pettycash_account_id`` is set, which is what
-    marks Step 6 (account codes) as done. All six account columns are mirrored now
-    because Group D writes them, and adding them later would mean touching this file
-    twice.
+    ``entity_id`` is the primary key -- one row per entity, not an id column. The account
+    and contact columns are FKs to the company's synced ``account_info`` /
+    ``xero_contact_sync`` rows (uuids); Group B reads whether ``pettycash_account_id`` is
+    set, which is what marks Step 6 (account codes) as done, and Group D writes the six
+    account columns.
     """
 
-    entity_id = models.CharField(max_length=36, primary_key=True)
-    pettycash_account_id = models.CharField(max_length=36, null=True, blank=True)
-    bank_account_id = models.CharField(max_length=36, null=True, blank=True)
-    cash_sale_account_id = models.CharField(max_length=36, null=True, blank=True)
-    discrepancy_bank_account_id = models.CharField(max_length=36, null=True, blank=True)
-    discrepancy_account_id = models.CharField(max_length=36, null=True, blank=True)
-    director_account_id = models.CharField(max_length=36, null=True, blank=True)
+    entity_id = models.UUIDField(primary_key=True)
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    pettycash_account_id = models.UUIDField(null=True, blank=True)
+    bank_account_id = models.UUIDField(null=True, blank=True)
+    cash_sale_account_id = models.UUIDField(null=True, blank=True)
+    discrepancy_bank_account_id = models.UUIDField(null=True, blank=True)
+    discrepancy_account_id = models.UUIDField(null=True, blank=True)
+    director_account_id = models.UUIDField(null=True, blank=True)
+    cash_sale_contact_id = models.UUIDField(null=True, blank=True)
+    director_contact_id = models.UUIDField(null=True, blank=True)
+    discrepancy_contact_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
@@ -433,116 +471,105 @@ class EntityPettycashSettings(models.Model):
 
 
 class EntitySaleSetting(models.Model):
-    """An entity's enabled sales/payment methods. PK is ``sale_id``, not ``id``.
+    """Which sales methods a company uses: a link from the company to a catalogue row
+    (``SaleInfo``), keyed ``(entity_id, sale_id)``, carrying only what is per-company - on/off
+    and the order on the sales page. Name, type and form-field name are the catalogue's.
 
-    Group B reads the Electronic and Delivery rows to rehydrate Step 5. Note that
-    Flask's docstring for that read says it reads "sale_info rows" -- it does not, it
-    reads this table. ``sale_info`` is the global catalog; this is the per-entity
-    selection, and the two are easy to confuse because a column here is also called
-    ``sale_info_id``.
+    Step 5 of the wizard reads and reconciles these rows (onboarding/services/sales_methods).
     """
 
-    sale_id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, null=True, blank=True)
-    type = models.CharField(max_length=50, null=True, blank=True)
-    sale_name = models.CharField(max_length=80, null=True, blank=True)
-    value_name = models.CharField(max_length=80, null=True, blank=True)
-    sale_info_id = models.CharField(max_length=36, null=True, blank=True)
-    create_date = models.DateTimeField(null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-    display_order = models.IntegerField(default=0, null=True, blank=True)
-    enabled = models.BooleanField(default=True, null=True, blank=True)
+    pk = models.CompositePrimaryKey("entity_id", "sale_id")
+    entity_id = models.UUIDField()
+    sale = models.ForeignKey(
+        "SaleInfo", on_delete=models.DO_NOTHING, db_column="sale_id", db_constraint=False,
+        related_name="entity_links",
+    )
+    is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(null=True, blank=True)
 
     class Meta:
         managed = False
         db_table = "entity_sale_setting"
 
     def __str__(self):
-        return f"{self.type}/{self.sale_name} for {self.entity_id}"
+        return f"{self.sale_id} for {self.entity_id} ({'on' if self.is_active else 'off'})"
 
 
 class Report(models.Model):
-    """The petty-cash report table. Mirrored for ONE row: the opening draft.
+    """The petty-cash report (``report``). Mirrored for ONE row: the opening draft.
 
     Group B reads the entity's earliest ``status='draft'`` row to rehydrate the opening
-    balance the wizard captured at Step 5.
+    balance the wizard captured at Step 5, and writes it. Since C4 the columns are the
+    schema's: ``entity_id`` (was ``company``), ``created_by`` (a user id; was the username
+    in ``uploaded_by``), ``cashsale_total`` / ``nocashsale_total`` / ``expense_total`` (the
+    stored aggregates), enum-typed ``status`` / ``publishing_status`` / ``discrepancy_type``,
+    money as ``numeric(14,2)``, and the stamps have database defaults - so a row written
+    here is indistinguishable from one Flask writes.
 
-    STILL A PARTIAL MIRROR, but now WRITABLE, so the rule for what belongs here changed:
-    every column the insert must satisfy has to be present, not just the ones onboarding
-    reads.
-
-    Five of them are ``NOT NULL`` with no database default and were missing while this was
-    read-only: ``cash_sales``, ``shop_sales``, ``delivery_sales``, ``total_sales`` and
-    ``bank_deposit``. That is the same trap ``entity_function_map`` sprang -- a partial
-    mirror is safe for reads and a latent not-null violation for writes, and SQLite cannot
-    tell you, because it builds its tables from this file.
-
-    What stays out: the discrepancy fields, receipt files, Xero publishing state, and the
-    rest of the ~40-column petty-cash surface. Onboarding neither reads nor writes them,
-    and a mirror is a maintenance liability per column. If ``petty-cash-backend`` is ever
-    extracted, this table goes with it and onboarding asks that service for the draft.
-
-    ``company`` holds the ENTITY ID despite the name and the String(150) width -- it
-    predates the rename and is not a company name.
+    What stays out: the per-method sales, the expense lines, the cash count and the Xero
+    sync tables. If ``petty-cash-backend`` is ever extracted, this table goes with it and
+    onboarding asks that service for the draft.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    company = models.CharField(max_length=150)
-    status = models.CharField(max_length=20, null=True, blank=True)
-    # When the row was written. Flask fills this with a PYTHON-side SQLAlchemy default
-    # (`default=lambda: datetime.now(tz)`), and the column has no server default -- so a
-    # writer that omits it stores NULL and Minty's dashboard then does
-    # `datetime.now() - report.date` with no guard and raises. See the note in
-    # onboarding/services/opening_balance.py.
-    date = models.DateTimeField(null=True, blank=True)
-    transaction_date = models.DateField(null=True, blank=True)
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
+    transaction_date = models.DateField()
     next_transaction_date = models.DateField(null=True, blank=True)
-    opening_balance = models.FloatField(null=True, blank=True)
-    cash_addition = models.FloatField(null=True, blank=True)
-    adjusted_opening_balance = models.FloatField(null=True, blank=True)
-    # NOT NULL, no database default. Onboarding never sets a sale or a deposit, but the
-    # insert cannot omit them -- they are written as 0.0.
-    cash_sales = models.FloatField(default=0.0)
-    shop_sales = models.FloatField(default=0.0)
-    delivery_sales = models.FloatField(default=0.0)
-    total_sales = models.FloatField(default=0.0)
-    bank_deposit = models.FloatField(default=0.0)
-    # Nullable: NULL means "not entered yet", which 0.0 could not express.
-    expenses = models.FloatField(null=True, blank=True)
-    closing_balance = models.FloatField(null=True, blank=True)
-    # FK to user.username, not user.id.
-    uploaded_by = models.CharField(max_length=150, null=True, blank=True)
+    status = PgEnumField("report_status", choices=ReportStatus.choices, default=ReportStatus.DRAFT)
+    publishing_status = PgEnumField(
+        "publish_status", choices=PublishStatus.choices, default=PublishStatus.UNPUBLISHED
+    )
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cash_addition = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    adjusted_opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cashsale_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    nocashsale_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    total_sales = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # NULL means "not entered yet", which 0.0 could not express.
+    expense_total = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    bank_deposit = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    closing_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    safe_box_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    discrepancy_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    discrepancy_type = PgEnumField(
+        "discrepancy_type", choices=DiscrepancyType.choices, default=DiscrepancyType.NONE
+    )
+    discrepancy_reason = models.CharField(max_length=300, null=True, blank=True)
     # Where the user resumes inside the report form, and which sections they finished.
-    # Also Python-side defaults in Flask. Mirrored so a row written here is
-    # indistinguishable from one written there.
-    xero_integrated_yes = models.BooleanField(default=False, null=True, blank=True)
-    discrepancy_amount = models.FloatField(default=0.0, null=True, blank=True)
-    discrepancy_type = models.CharField(max_length=20, default="none", null=True, blank=True)
-    current_section = models.CharField(max_length=50, null=True, blank=True)
-    # TolerantJSONField, not JSONField -- this is a `json` column, not `jsonb`.
-    completed_sections = TolerantJSONField(null=True, blank=True)
+    current_section = models.CharField(max_length=20, null=True, blank=True)
+    completed_sections = models.JSONField(null=True, blank=True)
+    xero_integrated = models.BooleanField(null=True, blank=True)
+    # 'personal' | 'company': where the money ADDED to the float came from.
+    cash_addition_type = models.CharField(max_length=20, null=True, blank=True)
+    created_by = models.UUIDField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
         db_table = "report"
 
     def __str__(self):
-        return f"report {self.id} ({self.status}) for {self.company}"
+        return f"report {self.id} ({self.status}) for {self.entity_id}"
 
 
 class Invitation(models.Model):
-    """A pending team invite. Group B lists them; Group E creates and cancels them."""
+    """A pending team invite (``invitation``; was ``invitations``). Group B lists them;
+    Group E creates and cancels them. ``status`` is the ``invitation_status`` enum -
+    a cancelled invite is ``revoked`` - and ``role`` the ``entity_role`` enum (C6)."""
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36)
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
     email = models.CharField(max_length=150)
-    role = models.CharField(max_length=20)
+    role = PgEnumField("entity_role", choices=EntityRole.choices)
     first_name = models.CharField(max_length=100, null=True, blank=True)
     last_name = models.CharField(max_length=100, null=True, blank=True)
     token = models.CharField(max_length=64, unique=True)
-    status = models.CharField(max_length=20, default="pending")
-    invited_by = models.CharField(max_length=36, null=True, blank=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    status = PgEnumField("invitation_status", choices=InvitationStatus.choices, default=InvitationStatus.PENDING)
+    invited_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
     accepted_at = models.DateTimeField(null=True, blank=True)
     # NULL means a legacy row that never expires. Set at creation to
     # created_at + INVITATION_TTL_DAYS, in Hong Kong time.
@@ -550,36 +577,35 @@ class Invitation(models.Model):
 
     class Meta:
         managed = False
-        db_table = "invitations"
+        db_table = "invitation"
 
     def __str__(self):
         return f"invite {self.email} -> {self.entity_id} ({self.status})"
 
 
 class SaleInfo(models.Model):
-    """Read-only. The global catalog of sales/payment methods.
+    """The GLOBAL catalogue of sales/payment methods (``sale_name`` is unique): Visa, Alipay,
+    Foodpanda, Cash - and every name a company ever typed for itself. Which company uses
+    which is ``EntitySaleSetting``. ``value_name`` is the sales form's field name
+    (``visa_sales``); Cash is the row keyed ``cash_sales`` and its type is ``other``.
 
-    ``entity_id IS NULL`` is a global row available to every entity; a set ``entity_id`` is
-    a custom method owned by one entity. Group C reads the global rows to seed a new
-    entity's default methods.
-
-    ``legacy_column`` is a transition bridge to the physical ``*_sales`` columns on
-    ``report``. It is copied into ``entity_sale_setting.value_name`` because reads have not
-    all moved to ``sale_info_id`` yet. A NEW method must never need one.
+    Written here only when Step 5 meets a name nobody has used before.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
-    entity_id = models.CharField(max_length=36, null=True, blank=True)
-    code = models.CharField(max_length=50)
-    name = models.CharField(max_length=80)
-    type = models.CharField(max_length=20)
-    legacy_column = models.CharField(max_length=50, null=True, blank=True)
-    is_active = models.BooleanField(default=True)
-    display_order = models.IntegerField(default=0)
+    CASH_VALUE_NAME = "cash_sales"
+
+    id = models.UUIDField(primary_key=True)
+    type = PgEnumField("sale_type", choices=SaleType.choices, default=SaleType.OTHER)
+    sale_name = models.CharField(max_length=80, unique=True)
+    value_name = models.CharField(max_length=80, null=True, blank=True)
+    display_order = models.IntegerField(null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         managed = False
         db_table = "sale_info"
 
     def __str__(self):
-        return f"{self.type}/{self.name}"
+        return f"{self.type}/{self.sale_name}"

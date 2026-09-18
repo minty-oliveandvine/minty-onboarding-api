@@ -51,7 +51,7 @@ from django.db.models import Q
 from core.exceptions import (AccessDeniedError, ConflictError,
                              OnboardingValidationError)
 from core.policy import Permission, has_permission_by_user_id
-from shared_models.models import Report, User
+from shared_models.models import Report
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -87,7 +87,7 @@ def _parse_date(value):
 
 def _posted_reports(entity_id: str):
     """Reports that are NOT drafts. NULL status counts as posted."""
-    return Report.objects.filter(company=entity_id).filter(
+    return Report.objects.filter(entity_id=entity_id).filter(
         Q(status__isnull=True) | ~Q(status=DRAFT)
     )
 
@@ -122,9 +122,8 @@ def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition)
     if _posted_reports(entity_id).filter(transaction_date=tx_date).exists():
         raise ConflictError(f"A report for {tx_date} already exists.")
 
-    user = User.objects.filter(id=str(user_id)).first()
-    # uploaded_by is an FK to user.USERNAME, not to user.id.
-    username = user.username if user else None
+    # created_by is the person's id (schema); a caller without one leaves it NULL
+    creator_id = str(user_id) if user_id else None
 
     # opening_balance (amount) + cash_addition (0).
     adjusted = amount
@@ -135,13 +134,13 @@ def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition)
         if onboarding_over:
             # Exact date only -- never reach into another day's in-progress draft.
             draft = Report.objects.filter(
-                company=entity_id, transaction_date=tx_date, status=DRAFT
+                entity_id=entity_id, transaction_date=tx_date, status=DRAFT
             ).first()
         else:
             # Entity alone, earliest first: the single draft IS the onboarding one, so
             # changing the date MOVES it rather than leaving a stale row behind.
             draft = (
-                Report.objects.filter(company=entity_id, status=DRAFT)
+                Report.objects.filter(entity_id=entity_id, status=DRAFT)
                 .order_by("transaction_date")
                 .first()
             )
@@ -153,50 +152,40 @@ def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition)
             draft.adjusted_opening_balance = adjusted
             draft.closing_balance = adjusted
             draft.next_transaction_date = tx_date + timedelta(days=1)
-            if username:
-                draft.uploaded_by = username
+            if creator_id:
+                draft.created_by = creator_id
             draft.save(
                 update_fields=[
                     "transaction_date", "opening_balance", "cash_addition",
                     "adjusted_opening_balance", "closing_balance",
-                    "next_transaction_date", "uploaded_by",
+                    "next_transaction_date", "created_by",
                 ]
             )
             created = False
         else:
             draft = Report.objects.create(
                 id=str(uuid.uuid4()),
-                company=entity_id,
+                entity_id=entity_id,
                 status=DRAFT,
-                # WHEN THE ROW WAS WRITTEN -- and it must not be omitted.
-                #
-                # Flask fills this from a PYTHON-side SQLAlchemy default, which Django
-                # cannot see, and the column has no server default. Leaving it out stores
-                # NULL, and Minty's dashboard does `datetime.now() - report.date` with no
-                # guard (blueprints/entity/routes/list.py) -- so one draft created here
-                # took the whole Select Company page down with a TypeError.
-                #
-                # Hong Kong, matching Flask's `datetime.now(tz)`, not UTC.
-                date=datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)),
+                # created_at / updated_at come from the database (schema defaults) - the
+                # NULL-date trap this row used to spring on Minty's dashboard is gone.
                 transaction_date=tx_date,
                 next_transaction_date=tx_date + timedelta(days=1),
                 opening_balance=amount,
                 cash_addition=0.0,
                 adjusted_opening_balance=adjusted,
                 closing_balance=adjusted,
-                # NOT NULL with no database default. Onboarding records no sales and no
-                # deposit, but the insert cannot omit them.
-                cash_sales=0.0,
-                shop_sales=0.0,
-                delivery_sales=0.0,
+                # Onboarding records no sales and no deposit; the same zeros Flask writes
+                # for a fresh opening draft, so the two rows are indistinguishable.
+                cashsale_total=0.0,
+                nocashsale_total=0.0,
                 total_sales=0.0,
                 bank_deposit=0.0,
-                expenses=0.0,
-                # The remaining Python-side defaults, so this row matches Flask's exactly.
-                xero_integrated_yes=False,
+                expense_total=0.0,
+                xero_integrated=False,
                 discrepancy_amount=0.0,
                 discrepancy_type="none",
-                uploaded_by=username,
+                created_by=creator_id,
                 # The opening is seeded here, but the user still STARTS their first report
                 # at the opening section so they can see and confirm it -- so the section is
                 # deliberately not pre-marked complete.

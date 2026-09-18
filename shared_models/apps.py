@@ -33,6 +33,7 @@ class SharedModelsConfig(AppConfig):
             models.EntityFunctionMap,
             models.BillingPlan,
             models.BillingPolicy,
+            models.AccountInfo,
             models.EntityPettycashSettings,
             models.EntitySaleSetting,
             models.Report,

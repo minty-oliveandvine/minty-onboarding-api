@@ -166,20 +166,24 @@ def _opening_balance_state(entity_id: str) -> dict | None:
     starting cash in ``opening_balance`` with ``cash_addition`` 0; both come back so the
     frontend can bind to either.
 
-    ``company`` holds the entity id despite the column name.
+    The money columns are ``numeric``; the wizard's JSON gets numbers, not strings.
     """
     draft = (
-        Report.objects.filter(company=entity_id, status="draft")
+        Report.objects.filter(entity_id=entity_id, status="draft")
         .order_by("transaction_date")
         .first()
     )
     if draft is None:
         return None
+
+    def _num(value):
+        return float(value) if value is not None else None
+
     return {
         "opening_date": draft.transaction_date.isoformat() if draft.transaction_date else None,
-        "opening_balance": draft.opening_balance,
-        "cash_addition": draft.cash_addition,
-        "adjusted_opening_balance": draft.adjusted_opening_balance,
+        "opening_balance": _num(draft.opening_balance),
+        "cash_addition": _num(draft.cash_addition),
+        "adjusted_opening_balance": _num(draft.adjusted_opening_balance),
     }
 
 

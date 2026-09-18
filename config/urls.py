@@ -77,7 +77,7 @@ def health(request):
     """Liveness only -- does not touch the database.
 
     Deliberately not a readiness check. The container entrypoint already waits for the
-    database and the pettycashv2 schema before starting, so a health endpoint that also
+    database and the pettycashv3 schema before starting, so a health endpoint that also
     queried would report unhealthy for a transient database blip and get the container
     killed mid-request. If a readiness probe is wanted later it should be its own path.
     """

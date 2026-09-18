@@ -68,7 +68,7 @@ def test_names_are_read_from_the_row_not_the_accept_url(client, auth, entity):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", ["accepted", "cancelled", "expired"])
+@pytest.mark.parametrize("status", ["accepted", "revoked", "expired"])
 def test_non_pending_invites_are_excluded(client, auth, entity, status):
     make_invite(entity, status=status)
     assert client.get(INVITE, {"entity_id": entity.id}, **auth).json()["invitations"] == []
@@ -130,7 +130,7 @@ def test_cancelling_marks_the_row_cancelled(client, auth, entity):
     assert resp.json() == {"status": "success"}
 
     inv.refresh_from_db()
-    assert inv.status == "cancelled"
+    assert inv.status == "revoked"
 
 
 @pytest.mark.django_db
@@ -148,7 +148,7 @@ def test_an_unknown_invitation_is_404(client, auth):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", ["cancelled", "accepted", "expired"])
+@pytest.mark.parametrize("status", ["revoked", "accepted", "expired"])
 def test_an_already_resolved_invitation_is_400_not_404(client, auth, entity, status):
     """A DIFFERENT ANSWER FROM 404, and not just worse wording.
 

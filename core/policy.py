@@ -34,15 +34,21 @@ from enum import Enum
 from typing import Any
 
 from shared_models.models import User, UserEntity
+from shared_models.enums import SystemRole
 
 # ---------------------------------------------------------------------------
 # Vocabulary
 # ---------------------------------------------------------------------------
-SYSTEM_ROLE_NORMAL = "normal"
-SYSTEM_ROLE_SUPERUSER = "superuser"
-SYSTEM_ROLE_VALUES = (SYSTEM_ROLE_NORMAL, SYSTEM_ROLE_SUPERUSER)
+# The words are the database's (shared_models/enums.SystemRole, mirroring the ``system_role``
+# enum in Minty's docs/schema/01_schema_rebased.sql). The constant keeps its historical name.
+SYSTEM_ROLE_NORMAL = SystemRole.NORMAL.value
+SYSTEM_ROLE_ADMIN = SystemRole.ADMIN.value
+SYSTEM_ROLE_SUPERUSER = SystemRole.SUPERADMIN.value
+SYSTEM_ROLE_VALUES = tuple(SystemRole.values)
 
-#: Pre-split values that still mean "superuser" on legacy rows.
+#: Pre-split ``role`` values that meant the system super admin. "superuser" is NOT here:
+#: the pre-split column never held it (test_policy pins that); the pre-rename *system_role*
+#: spelling is handled in normalize_system_role instead.
 LEGACY_SUPERUSER_ROLES = frozenset({"admin", "super_admin"})
 
 
@@ -186,6 +192,8 @@ def normalize_system_role(system_role: Any) -> str:
     if system_role is None:
         return SYSTEM_ROLE_NORMAL
     normalized = str(system_role).strip().lower()
+    if normalized == "superuser":  # pre-rename spelling, e.g. in an old JWT
+        return SYSTEM_ROLE_SUPERUSER
     return normalized if normalized in SYSTEM_ROLE_VALUES else SYSTEM_ROLE_NORMAL
 
 

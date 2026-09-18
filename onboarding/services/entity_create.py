@@ -56,6 +56,7 @@ from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
 # how they drift apart. services/plans.py owns the module codes; state.py imports them from
 # there too, so this is now the single definition.
 from onboarding.services.plans import MODULE_CODES
+from shared_models.enums import SaleType
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -68,86 +69,52 @@ DEFAULT_MODULE_STATE: dict[str, bool] = {code: False for code in MODULE_CODES}
 #: gate the wizard applies, so promoting them would widen standing for no requirement.
 CREATOR_ROLE = "admin"
 
-#: entity_function_map.created_by is 36 chars. Audit value for this path.
-ACTOR_ENTITY_CREATE = "entity_create"
 
-#: Fallback default methods for a database whose SaleInfo catalog has not been seeded.
-#: Cash leads and its type is 'Cash', NOT 'Electronic': the petty-cash closing-balance
-#: figure is found by keying on that type, so misfiling it breaks the report arithmetic.
-FALLBACK_SALES_METHODS = (
-    ("Cash", "cash_sales", "Cash", 0),
-    ("Visa", "visa_sales", "Electronic", 1),
-    ("Alipay", "alipay_sales", "Electronic", 2),
-    ("WeChat Pay", "wechat_sales", "Electronic", 3),
-    ("Mastercard", "master_sales", "Electronic", 4),
-    ("UnionPay", "unionpay_sales", "Electronic", 5),
-    ("Amex", "amex_sales", "Electronic", 6),
-    ("Octopus", "octopus_sales", "Electronic", 7),
-    ("Food Panda", "foodpanda_sales", "Delivery", 1),
-    ("Keeta", "keeta_sales", "Delivery", 2),
-    ("OpenRice", "openrice_sales", "Delivery", 3),
+#: The methods a brand-new company starts with, and their order. The catalogue itself is
+#: global; a default that is not in it yet (a fresh database) is added. Cash leads and is
+#: type ``other`` keyed ``cash_sales``: the closing-balance figure is found by that key.
+DEFAULT_SALES_METHODS = (
+    # (name, value_name, type, order)
+    ("Cash", "cash_sales", SaleType.OTHER, 0),
+    ("Visa", "visa_sales", SaleType.ELECTRONIC, 1),
+    ("Alipay", "alipay_sales", SaleType.ELECTRONIC, 2),
+    ("WeChat Pay", "wechat_sales", SaleType.ELECTRONIC, 3),
+    ("Mastercard", "master_sales", SaleType.ELECTRONIC, 4),
+    ("UnionPay", "unionpay_sales", SaleType.ELECTRONIC, 5),
+    ("Amex", "amex_sales", SaleType.ELECTRONIC, 6),
+    ("Octopus", "octopus_sales", SaleType.ELECTRONIC, 7),
+    ("Food Panda", "foodpanda_sales", SaleType.DELIVERY, 1),
+    ("Keeta", "keeta_sales", SaleType.DELIVERY, 2),
+    ("OpenRice", "openrice_sales", SaleType.DELIVERY, 3),
 )
 
 
 def _seed_default_sales_methods(entity_id: str) -> None:
-    """Default payment and delivery methods for a new entity.
+    """Link a new company to the default sales methods (same list as Flask's
+    ``create_default_entity_settings``). Idempotent per (entity, catalogue row)."""
+    from onboarding.services.sales_methods import ensure_catalog_row
 
-    Seeded from the ``sale_info`` catalog when it is populated, so a method added to the
-    catalog reaches new entities without editing code. The hardcoded list is the fallback
-    for a database where the catalog has not been seeded -- and also the source of the
-    per-method display order in that case.
-
-    ``value_name`` carries the legacy ``*_sales`` column key. It stays until every read has
-    moved to ``sale_info_id``; dropping it now would break the report columns that still
-    key on it.
-    """
-    now = datetime.now(timezone.utc)
-
-    catalog = list(
-        SaleInfo.objects.filter(entity_id__isnull=True, is_active=True).order_by(
-            "type", "display_order"
+    existing = set(
+        EntitySaleSetting.objects.filter(entity_id=entity_id).values_list("sale_id", flat=True)
+    )
+    rows = []
+    for name, value_name, sale_type, order in DEFAULT_SALES_METHODS:
+        catalog = SaleInfo.objects.filter(value_name=value_name).first() or ensure_catalog_row(
+            name, sale_type, value_name=value_name, display_order=order
         )
-    )
-
-    if catalog:
-        rows = [
-            EntitySaleSetting(
-                sale_id=str(uuid.uuid4()),
-                entity_id=entity_id,
-                sale_name=method.name,
-                value_name=method.legacy_column,
-                type=method.type,
-                sale_info_id=method.id,
-                display_order=method.display_order,
-                enabled=True,
-                create_date=now,
-                updated_at=now,
-            )
-            for method in catalog
-        ]
-    else:
-        rows = [
-            EntitySaleSetting(
-                sale_id=str(uuid.uuid4()),
-                entity_id=entity_id,
-                sale_name=name,
-                value_name=legacy,
-                type=typ,
-                display_order=order,
-                enabled=True,
-                create_date=now,
-                updated_at=now,
-            )
-            for name, legacy, typ, order in FALLBACK_SALES_METHODS
-        ]
-
-    EntitySaleSetting.objects.bulk_create(rows)
-    logger.info(
-        "onboarding: seeded %s default sales methods for entity %s", len(rows), entity_id
-    )
+        if catalog.id in existing:
+            continue
+        existing.add(catalog.id)
+        rows.append(
+            EntitySaleSetting(entity_id=entity_id, sale=catalog, is_active=True, display_order=order)
+        )
+    if rows:
+        EntitySaleSetting.objects.bulk_create(rows)
+    logger.info("onboarding: linked %s default sales methods for entity %s", len(rows), entity_id)
 
 
-def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None) -> None:
+def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
+                          user_id=None) -> None:
     """Write one ``entity_function_map`` row per module, all disabled.
 
     THE GUARD: this refuses to write ``is_enabled=True``. Enabling a module is a
@@ -196,15 +163,13 @@ def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None) 
     now = datetime.now(timezone.utc)
     rows = [
         EntityFunctionMap(
-            id=str(uuid.uuid4()),
             entity_id=entity_id,
             entity_function_id=fn_id,
             # Explicit, always. The column's DATABASE default is `true`.
             is_enabled=False,
             enabled_at=None,
             disabled_at=now,
-            created_by=ACTOR_ENTITY_CREATE[:36],
-            # NOT NULL with no database default -- omitting these fails the insert.
+            created_by=str(user_id) if user_id else None,  # the person, never a label
             created_at=now,
             updated_at=now,
         )
@@ -227,9 +192,15 @@ def find_resumable_entity(user_id, name: str) -> Entity | None:
     must not match a FINALIZED company, or re-submitting Step 1 would silently rebind the
     wizard to a live company and start editing it.
     """
-    entity_ids = UserEntity.objects.filter(user_id=str(user_id)).values_list(
-        "entity_id", flat=True
-    )
+    # Materialised, not a subquery: ``user_entity.entity_id`` is a UUIDField (C1) while
+    # ``Entity.id`` is still a CharField until C2, and SQLite stores the two spellings
+    # differently (32 hex chars vs hyphenated) -- an ``id__in=<queryset>`` matched nothing.
+    entity_ids = [
+        str(eid)
+        for eid in UserEntity.objects.filter(user_id=str(user_id)).values_list(
+            "entity_id", flat=True
+        )
+    ]
     return Entity.objects.filter(
         id__in=entity_ids, name=name, status="onboarding"
     ).first()
@@ -286,7 +257,7 @@ def create_entity_for_user(
             approved=True,
         )
         _seed_default_sales_methods(entity.id)
-        _seed_module_defaults(entity.id)
+        _seed_module_defaults(entity.id, user_id=user_id)
 
     logger.info("onboarding: created entity %s for user %s", entity.id, user_id)
     return entity, True

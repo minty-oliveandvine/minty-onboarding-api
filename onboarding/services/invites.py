@@ -93,7 +93,7 @@ def list_pending_best_effort(user_id, entity_id: str) -> list[dict]:
 
 
 def cancel(user_id, invitation_id: str) -> dict:
-    """Cancel a pending invitation. Soft: the row is marked ``cancelled``, never deleted.
+    """Cancel a pending invitation. Soft: the row is marked ``revoked``, never deleted.
 
     Note the two different "not found" answers, both ported:
 
@@ -128,7 +128,7 @@ def cancel(user_id, invitation_id: str) -> dict:
         )
 
     updated = Invitation.objects.filter(id=invitation_id, status="pending").update(
-        status="cancelled"
+        status="revoked"  # the invitation_status word for a cancelled invite (C6)
     )
     if not updated:
         # Lost a race, or it was already resolved. Checked as part of the UPDATE rather

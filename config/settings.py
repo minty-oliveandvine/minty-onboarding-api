@@ -32,7 +32,7 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 # authentication is our own bearer scheme (core.auth) and authorisation our own
 # membership checks (core.permissions). There is no admin, no sessions, no
 # ContentType lookups. Installing them only made `migrate` want to CREATE TABLE
-# django_content_type / auth_* inside pettycashv2 -- a schema Alembic owns --
+# django_content_type / auth_* inside pettycashv3 -- a schema Alembic owns --
 # which fails on any database where those tables already exist.
 INSTALLED_APPS = [
     "corsheaders",
@@ -76,11 +76,18 @@ WSGI_APPLICATION = "config.wsgi.application"
 # ---------------------------------------------------------------------------
 # Database -- the same database and schema the Flask app owns
 #
-# This service is a TENANT of pettycashv2, never its owner. Every model is
+# This service is a TENANT of pettycashv3, never its owner. Every model is
 # managed = False and this repo ships no migrations: Alembic in Minty is the
 # owner-of-record for all DDL. A new column means an Alembic migration there
 # first, then a hand-edit of the model here.
 # ---------------------------------------------------------------------------
+# The schema every model lives in, shared with Minty (blueprints/shared/schema.py reads the
+# SAME variable with the same default). pettycashv3 is the permanent production name; the
+# variable exists so the name is a setting, not a literal - every db_table is unqualified and
+# resolves through search_path, and the raw queries below read this. The test settings and
+# the root conftest read it too, so `MINTY_DB_SCHEMA=pettycash_alt pytest` proves it.
+DB_SCHEMA = os.environ.get("MINTY_DB_SCHEMA", "pettycashv3")
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -89,7 +96,7 @@ DATABASES = {
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "admin"),
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
-        "OPTIONS": {"options": "-c search_path=pettycashv2,public"},
+        "OPTIONS": {"options": f"-c search_path={DB_SCHEMA},public"},
     }
 }
 

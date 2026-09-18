@@ -16,7 +16,7 @@ import pytest
 from core import xero_tokens
 from onboarding.services import state as state_service
 from onboarding.services import steps as step_defs
-from shared_models.models import (EntityPettycashSettings, EntitySaleSetting,
+from shared_models.models import (EntityPettycashSettings, EntitySaleSetting, SaleInfo,
                                   Invitation, Report, UserEntity)
 from tests.conftest import make_token
 
@@ -69,13 +69,28 @@ def test_unknown_entity_is_404_only_for_a_member(client, auth, user):
     403-vs-404 split would let anyone enumerate which entity ids are real by probing. So a
     stranger gets 403 for a missing entity too -- which looks wrong and is not.
     """
+    # user_entity.entity_id is a real FK: a membership of a missing entity cannot exist on
+    # the schema, so the case is a company that was deleted AFTER the membership was read -
+    # made here by creating the company, granting membership, then deleting the row (the
+    # FK cascades the membership away, which is exactly the "member of a ghost" state the
+    # route must still answer 404 for rather than 403).
     ghost = str(uuid.uuid4())
+    from shared_models.models import Entity
+
+    Entity.objects.create(id=ghost, name="Ghost Co", status="onboarding")
     UserEntity.objects.create(
         user_id=user.id, entity_id=ghost, role="super_admin", approved=True
     )
+    Entity.objects.filter(id=ghost).delete()
     resp = client.get(STATE, {"entity_id": ghost}, **auth)
-    assert resp.status_code == 404
-    assert resp.json() == {"error": "Entity not found"}
+    if UserEntity.objects.filter(user_id=user.id, entity_id=ghost).exists():
+        # SQLite enforces no FK: the membership survived, so the member reaches the 404
+        assert resp.status_code == 404
+        assert resp.json() == {"error": "Entity not found"}
+    else:
+        # Postgres cascaded the membership away with the company: the person is a
+        # stranger to a missing entity and, deliberately, learns nothing (403 - see above)
+        assert resp.status_code == 403
 
 
 @pytest.mark.django_db
@@ -124,9 +139,9 @@ def test_modules_come_back_in_canonical_order(client, auth, entity, enable_modul
     Order is MODULE_CODES order, not insertion order -- the wizard renders the list
     directly.
     """
-    enable_module(entity, "BILL")
+    enable_module(entity, "PAYMENT_REQUEST")
     enable_module(entity, "PETTY_CASH")
-    assert state_of(client, auth, entity)["modules"] == ["PETTY_CASH", "BILL"]
+    assert state_of(client, auth, entity)["modules"] == ["PETTY_CASH", "PAYMENT_REQUEST"]
 
 
 # ---------------------------------------------------------------------------
@@ -160,15 +175,22 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
     enable_module(entity, "PETTY_CASH")
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
+    # pettycash_account_id is an FK to the company's synced account_info row
+    from shared_models.models import AccountInfo
+
+    account = AccountInfo.objects.create(
+        id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+    )
     EntityPettycashSettings.objects.create(
-        entity_id=entity.id, pettycash_account_id=str(uuid.uuid4())
+        entity_id=entity.id, pettycash_account_id=account.id
     )
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_INVITE
 
 
 @pytest.mark.django_db
 def test_bill_module_lands_on_bills(client, auth, entity, enable_module, xero_unverifiable):
-    enable_module(entity, "BILL")
+    enable_module(entity, "PAYMENT_REQUEST")
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_BILLS
@@ -181,11 +203,11 @@ def test_a_finalized_entity_reports_the_terminal_step(client, auth, entity, modu
     Asserted with no modules enabled, so it is clear the status wins rather than the data
     happening to justify step 9.
     """
-    entity.status = "active"
+    entity.status = "connected"  # the entity_status word for a finished company (C2)
     entity.save()
     body = state_of(client, auth, entity)
     assert body["current_step"] == step_defs.STEP_ALL_SET
-    assert body["status"] == "active"
+    assert body["status"] == "connected"
 
 
 @pytest.mark.django_db
@@ -346,14 +368,14 @@ def test_currency_is_empty_string_when_unset(client, auth, entity, modules):
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
 def test_a_confirmed_revoke_clears_connection_state(
-    client, auth, entity, modules, monkeypatch
+    client, auth, user, entity, modules, monkeypatch
 ):
     """Xero answered, and the tenant is gone. That is evidence -- clear local state."""
     org = str(uuid.uuid4())
     entity.xero_org_id = org
     entity.xero_tenant_name = "Gone Ltd"
     entity.status = "onboarding"
-    entity.connected_by_user_id = "someone"
+    entity.connected_by_user_id = user.id  # a uuid FK to user now
     entity.save()
 
     monkeypatch.setattr(
@@ -422,13 +444,12 @@ def test_no_xero_org_does_not_call_xero_at_all(client, auth, entity, modules, mo
 def test_sales_methods_group_by_type_and_respect_display_order(
     client, auth, entity, modules
 ):
-    now = datetime.now(timezone.utc)
     for i, (typ, name) in enumerate(
-        [("Electronic", "Visa"), ("Delivery", "Foodpanda"), ("Electronic", "Octopus")]
+        [("electronic", "Visa"), ("delivery", "Foodpanda"), ("electronic", "Octopus")]
     ):
+        catalog = SaleInfo.objects.create(id=uuid.uuid4(), sale_name=name, type=typ, enabled=True)
         EntitySaleSetting.objects.create(
-            sale_id=str(uuid.uuid4()), entity_id=entity.id, type=typ, sale_name=name,
-            enabled=True, display_order=10 - i, create_date=now,
+            entity_id=entity.id, sale=catalog, is_active=True, display_order=10 - i,
         )
     methods = state_of(client, auth, entity)["sales_methods"]
     # display_order ascending: Octopus (8), Foodpanda (9), Visa (10)
@@ -438,15 +459,10 @@ def test_sales_methods_group_by_type_and_respect_display_order(
 
 @pytest.mark.django_db
 def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entity, modules):
-    now = datetime.now(timezone.utc)
-    EntitySaleSetting.objects.create(
-        sale_id=str(uuid.uuid4()), entity_id=entity.id, type="Electronic",
-        sale_name="Switched off", enabled=False, display_order=1, create_date=now,
-    )
-    EntitySaleSetting.objects.create(
-        sale_id=str(uuid.uuid4()), entity_id=entity.id, type="Cash",
-        sale_name="Cash", enabled=True, display_order=1, create_date=now,
-    )
+    off = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Switched off", type="electronic", enabled=True)
+    cash = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales", enabled=True)
+    EntitySaleSetting.objects.create(entity_id=entity.id, sale=off, is_active=False, display_order=1)
+    EntitySaleSetting.objects.create(entity_id=entity.id, sale=cash, is_active=True, display_order=1)
     assert state_of(client, auth, entity)["sales_methods"] == {
         "electronic": [],
         "delivery": [],
@@ -463,7 +479,7 @@ def test_opening_balance_reads_the_earliest_draft(client, auth, entity, modules)
     """Earliest by transaction_date -- the opening one, not the most recent."""
     for offset, amount in [(5, 999.0), (0, 500.0)]:
         Report.objects.create(
-            id=str(uuid.uuid4()), company=entity.id, status="draft",
+            id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
             transaction_date=date.today() + timedelta(days=offset),
             opening_balance=amount, cash_addition=0.0,
         )
@@ -475,7 +491,7 @@ def test_opening_balance_reads_the_earliest_draft(client, auth, entity, modules)
 @pytest.mark.django_db
 def test_a_posted_report_is_not_the_opening_draft(client, auth, entity, modules):
     Report.objects.create(
-        id=str(uuid.uuid4()), company=entity.id, status="posted",
+        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
         transaction_date=date.today(), opening_balance=123.0, cash_addition=0.0,
     )
     assert state_of(client, auth, entity)["opening_balance"] is None
@@ -499,7 +515,7 @@ def test_pending_invites_are_listed_for_a_super_admin(client, auth, entity, modu
 
 @pytest.mark.django_db
 def test_non_pending_invites_are_excluded(client, auth, entity, modules):
-    for status in ("accepted", "cancelled"):
+    for status in ("accepted", "revoked"):
         Invitation.objects.create(
             id=str(uuid.uuid4()), entity_id=entity.id, email=f"{status}@example.com",
             role="cashier", token=str(uuid.uuid4()), status=status,

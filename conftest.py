@@ -48,7 +48,7 @@ if os.environ.get("MINTY_TEST_PG_URI"):
             connections["default"].settings_dict["TEST"]["NAME"] = built.dbname
             with django_db_blocker.unblock():
                 with connections["default"].cursor() as cur:
-                    cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='pettycashv3'")
+                    cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema=%s", [settings.DB_SCHEMA])
                     (n,) = cur.fetchone()
                     assert n >= 50, f"harness database has only {n} tables"
             yield

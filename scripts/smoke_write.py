@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
+from django.conf import settings  # noqa: E402
 from django.db import connection, transaction  # noqa: E402
 
 from onboarding.services import opening_balance as opening_service  # noqa: E402
@@ -70,7 +71,7 @@ def main():
     country = CountryInfo.objects.filter(is_active=True).order_by("country_code").first()
     currency = CurrencyInfo.objects.filter(is_active=True).order_by("currency_code").first()
 
-    print(f"Database  {connection.settings_dict['NAME']} (schema pettycashv3)")
+    print(f"Database  {connection.settings_dict['NAME']} (schema {settings.DB_SCHEMA})")
     print(f"Actor     user={user_id}")
     print("All writes roll back at the end.\n")
 

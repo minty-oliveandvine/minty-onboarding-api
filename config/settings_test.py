@@ -19,7 +19,7 @@ SUBSCRIPTION_ENABLED = True
 #             by tests/pg_harness.py (loaded by conftest.py at the repo root). Nothing is created
 #             from the models; a mirror column the schema lacks fails on the SELECT, which is the
 #             point. Same knobs as Minty: MINTY_TEST_PG_DBNAME (minty_test), MINTY_TEST_PG_KEEP=1,
-#             PG_BIN, MINTY_REPO (C:\dev\Minty).
+#             PG_BIN, MINTY_REPO (C:\Github\Minty).
 _PG_URI = os.environ.get("MINTY_TEST_PG_URI")
 if _PG_URI:
     from urllib.parse import urlsplit as _urlsplit

@@ -1,14 +1,30 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
-.env
-.env.bak*
-logs/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
+
+# Secrets and local settings - .env.example is the documented list and IS committed
+.env
+.env.*
+!.env.example
+
+# Runtime output
+logs/
+db.sqlite3
+uploads/
+
+# Editors / OS
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# Agent scratch
 .claude/

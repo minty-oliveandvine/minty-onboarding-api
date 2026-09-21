@@ -21,7 +21,7 @@ import pytest
 if os.environ.get("MINTY_TEST_PG_URI"):
 
     def _load_harness():
-        minty = Path(os.environ.get("MINTY_REPO", r"C:\dev\Minty"))
+        minty = Path(os.environ.get("MINTY_REPO", r"C:\Github\Minty"))
         path = minty / "tests" / "pg_harness.py"
         if not path.exists():
             raise RuntimeError(f"Minty repo not found at {minty} (set MINTY_REPO); need {path}")

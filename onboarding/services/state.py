@@ -39,7 +39,6 @@ would assert a shared ordering that the frontend correctly refuses to share.
 
 import logging
 
-from django.conf import settings
 from core import xero_tokens
 from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
                                   EntityPettycashSettings, Report)
@@ -246,10 +245,6 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
             "email": entity.business_email or "",
         },
         "modules": modules,
-        # Whether subscriptions are live (config.settings.SUBSCRIPTION_ENABLED). False is
-        # the cutover state: the wizard hides every price, the billing sheet and the trial
-        # copy on All Set, and finalize enables the chosen modules without starting a trial.
-        "subscriptions_enabled": bool(settings.SUBSCRIPTION_ENABLED),
         "xero": xero,
         "sales_methods": _sales_methods_state(entity.id),
         "opening_balance": _opening_balance_state(entity.id),

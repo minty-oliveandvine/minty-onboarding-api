@@ -14,8 +14,7 @@ Flask are in the repo `README.md`.
 defaults to never comes from the browser's clock. `GET /currencies`, `GET /countries` —
 the registries Step 1 needs (`currency_info`, `country_info`), read from the database.
 `GET /plans` — the module price list for Step 2's summary, **from `billing_plan`, not
-Stripe** (`services/plans.py`); while subscriptions are dark it answers
-`{"plans": [], "subscriptions_enabled": false}`.
+Stripe** (`services/plans.py`).
 
 ## Resume: `/state` and `/saved-step` (`services/state.py`, `steps.py`)
 
@@ -23,7 +22,7 @@ Stripe** (`services/plans.py`); while subscriptions are dark it answers
 rebuilds the whole picture from the database — entity, name, country, currency, phone,
 email, status, `modules`, `xero` (connected? tenant), `sales_methods`, `opening_balance`,
 `invites` (best-effort: a cashier who may not list invitations still gets a state),
-`saved_step`, `current_step`, `max_reached`, `subscriptions_enabled` — so a cold resume
+`saved_step`, `current_step`, `max_reached` — so a cold resume
 (new browser, cleared storage) lands correctly.
 
 Two numbers, two meanings, one 1–9 scale:
@@ -48,6 +47,12 @@ are **resolved against the registries** (`resolve.country_code` accepts alpha-2,
 or a unique name; `currency_id` only queries once the value is a uuid) and never stored
 unvalidated — they are foreign keys; phone and email are checked the way the wizard does.
 
+The optional business email (`entities.business_email`) is not just stored (2026-09-30): the
+billing engines (Minty and `minty-billing-api`, `notify.address_for`) send the company's trial
+ending warning there, and a billing account with no billing email of its own mails its payment
+emails - and prints its invoices' Bill to - to the business email when every company on the
+account shares it. Blank means the payer's own address is used instead.
+
 ## Petty-cash setup (`api_pettycash.py`)
 
 - `GET/POST /sales-methods` — the electronic and delivery methods, **reconciled** to the
@@ -70,15 +75,13 @@ has no single-writer constraint, but the templates and the accept flow live ther
 
 `POST /modules` (the map is a projection of subscription state — Flask owns it),
 `payment-method*`, `billing/*` (Stripe customers, SetupIntents, cards, consent),
-`POST /finalize` (flips the company live, enables the modules, starts trials only when
-subscriptions are on) and `POST /xero/disconnect` are forwarded as the caller with
-Flask's own status code. While dark the billing routes answer 404 exactly as Flask does
-(`tests/test_subscriptions_dark.py`).
+`POST /finalize` (flips the company live, enables the modules, starts the trials) and
+`POST /xero/disconnect` are forwarded as the caller with Flask's own status code.
 
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,
 `test_reference.py`, `test_routes.py` (every path is registered), `test_char_schema.py`
-and `test_schema_name.py` (the schema), `test_settings_guard.py`; 374 on 2026-09-18 on
-Postgres against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
+and `test_schema_name.py` (the schema), `test_settings_guard.py`; 371 passed + 1 skipped on
+2026-10-01 (the three dark-switch tests went with the switch) on Postgres against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
 `onboarding/e2e` (`stack`, `resume`, `xero`, `walk`).

@@ -7,10 +7,6 @@ from config.settings import *  # noqa: F401, F403
 # whole contract with Flask in production, too.
 SECRET_KEY = "test-secret-key-shared-with-flask"
 
-# The subscription feature is ON for the suite (its default is off - production cut over
-# dark); tests/test_subscriptions_dark.py overrides it per test.
-SUBSCRIPTION_ENABLED = True
-
 # Two test databases, chosen by MINTY_TEST_PG_URI:
 #
 #   unset  -> SQLite in memory, tables built FROM THE MODELS (SHARED_MODELS_MANAGED_FOR_TESTING).

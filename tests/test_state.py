@@ -568,7 +568,6 @@ def test_the_response_carries_flasks_keys_and_no_others(client, auth, entity, mo
     flask_keys = {
         "entity_id", "status", "current_step", "max_reached", "saved_step", "entity",
         "modules", "xero", "sales_methods", "opening_balance", "invites",
-        "subscriptions_enabled",  # the feature switch, both sides (2026-09-18)
     }
     assert set(state_of(client, auth, entity)) == flask_keys
 

@@ -48,8 +48,7 @@ against the Flask matrix.
 ## Configuration
 
 `SECRET_KEY` (shared), `FLASK_APP_URL` (the proxies) and `XERO_TOKEN_SERVICE_URL` /
-`XERO_TOKEN_SERVICE_TIMEOUT` (the token service), `SUBSCRIPTION_ENABLED` (mirrors
-Minty's; `False` unless set), `MINTY_DB_SCHEMA` → `DB_SCHEMA` (the `search_path`),
+`XERO_TOKEN_SERVICE_TIMEOUT` (the token service), `MINTY_DB_SCHEMA` → `DB_SCHEMA` (the `search_path`),
 `ONBOARDING_APP_URL` / `CORS_ALLOWED_ORIGINS` for the wizard's origin.
 
 ## Tests

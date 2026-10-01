@@ -269,7 +269,6 @@ def test_empty_catalog_answers_a_usable_shape(client, auth, modules, policy):
     body = client.get(PLANS, **auth).json()
     assert body == {
         "plans": [],
-        "subscriptions_enabled": True,
         "bundle_amount": 0.0,
         "bundle_codes": [],
         "bundle_currency": None,

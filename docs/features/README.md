@@ -15,5 +15,5 @@ The three rules the service is built on (a SQLAlchemy `default=` is invisible to
 Alembic owns the schema; whoever owns the external rail owns the write), the migration
 groups and the deliberate divergences from Flask are in the repo `README.md`; read it
 first. Running it: `manage.py runserver 8001` with `.env` (`SECRET_KEY` shared with Minty,
-`FLASK_APP_URL`, `ONBOARDING_APP_URL`, `SUBSCRIPTION_ENABLED`, `MINTY_DB_SCHEMA`); tests
-`pytest` (374 on 2026-09-18; needs `MINTY_REPO` for the schema harness).
+`FLASK_APP_URL`, `ONBOARDING_APP_URL`, `MINTY_DB_SCHEMA`); tests
+`pytest` (371 + 1 skipped on 2026-10-01; needs `MINTY_REPO` for the schema harness).

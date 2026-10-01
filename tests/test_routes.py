@@ -62,8 +62,6 @@ PROXIED = {
     "POST /modules",
     # Group G -- Stripe, trials, and the Xero disconnect
     "GET /payment-method",
-    "POST /payment-method/setup",
-    "POST /payment-method/complete",
     "GET /billing/payment-methods",
     "POST /billing/payment-methods/setup-intent",
     "POST /billing/payment-methods/confirm",
@@ -157,8 +155,12 @@ def test_the_whole_flask_surface_is_answered():
     The split is the honest headline: well under half of the surface is actually implemented
     here, and that is by design, not by how far the work got. The remainder unblocks when
     ``subscription-service`` and ``xero-service`` exist.
+
+    20 -> 18 on 2026-10-01, deliberately: ``POST /payment-method/setup`` and ``/complete``
+    opened Stripe's HOSTED Checkout, and a card is now only ever captured in-app onto a
+    billing account. The wizard never called them, so no per-path exception is needed.
     """
     assert len(PORTED) == 13
-    assert len(PROXIED) == 20
-    assert len(EXPECTED) == 33
+    assert len(PROXIED) == 18
+    assert len(EXPECTED) == 31
     assert set(_operations()) == EXPECTED

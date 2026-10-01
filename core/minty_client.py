@@ -21,7 +21,7 @@ Stripe or Xero call cannot appear anywhere else without looking obviously wrong.
 WHAT GOES THROUGH HERE
 
   * Group F  POST /api/onboarding/modules            (module grant == subscription write)
-  * Group G  /api/onboarding/payment-method*         (Stripe)
+  * Group G  /api/onboarding/payment-method          (Stripe)
              /api/onboarding/billing/*               (Stripe)
              POST /api/onboarding/finalize           (starts the trial)
              POST /api/onboarding/xero/disconnect    (needs a Xero token)

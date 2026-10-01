@@ -113,7 +113,7 @@ line, and reverting is the same line.
 | **D2** Xero & bills | `account-codes`, `contacts`, `contacts/create`, `bill-codes` | **Flask** | Proxy |
 | **E** Invite send | `POST invite` | **Flask** | Proxy — the email links into a Flask route |
 | **F** Modules | `modules` | **Flask** | Proxy — a module grant is a subscription write |
-| **G** Money & Xero | `payment-method*`, `billing/*`, `finalize`, `xero/disconnect` | **Flask** | Proxy |
+| **G** Money & Xero | `payment-method`, `billing/*`, `finalize`, `xero/disconnect` | **Flask** | Proxy |
 
 **13 of 33 method+path operations are implemented here; 20 are proxied.** That split is by
 design, not by how far the work got — every proxied endpoint touches Stripe, a Xero token,

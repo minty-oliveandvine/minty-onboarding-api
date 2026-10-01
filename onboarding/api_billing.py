@@ -2,8 +2,9 @@
 
 EVERY ENDPOINT HERE TOUCHES A RAIL FLASK OWNS:
 
-  * ``payment-method*`` and ``billing/*`` create Stripe customers, SetupIntents and payment
-    methods, and record billing consent. Flask's ``subscription/services/checkout.py`` is
+  * ``payment-method`` and ``billing/*`` create Stripe customers, SetupIntents and payment
+    methods, and record billing consent. Cards are captured in-app with Stripe Elements and
+    always land on a billing account; there is no hosted Checkout route any more. Flask's ``subscription/services/checkout.py`` is
     ~3,200 lines of trial, proration and dunning logic treating the local tables as source of
     truth, with no webhook receiver to reconcile a second writer. A second writer there does
     not cause a merge conflict; it charges somebody twice.
@@ -43,18 +44,6 @@ def _get(request, path: str, entity_id: str):
 def get_payment_method(request, entity_id: str = ""):
     """``{has_payment_method, has_billing_consent}`` for the entity."""
     return _get(request, "/api/onboarding/payment-method", entity_id)
-
-
-@billing_router.post("/payment-method/setup")
-def post_payment_method_setup(request, payload: dict = Body(default={})):
-    return minty_client.proxy(request, "/api/onboarding/payment-method/setup", json=payload)
-
-
-@billing_router.post("/payment-method/complete")
-def post_payment_method_complete(request, payload: dict = Body(default={})):
-    return minty_client.proxy(
-        request, "/api/onboarding/payment-method/complete", json=payload
-    )
 
 
 # --- The payer's card shelf -----------------------------------------------------------

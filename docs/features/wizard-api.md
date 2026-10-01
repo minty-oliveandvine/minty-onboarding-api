@@ -81,7 +81,9 @@ has no single-writer constraint, but the templates and the accept flow live ther
 ## Proxied to Flask (`api_modules.py`, `api_billing.py`, `core/minty_client.py`)
 
 `POST /modules` (the map is a projection of subscription state — Flask owns it),
-`payment-method*`, `billing/*` (Stripe customers, SetupIntents, cards, consent),
+`GET /payment-method`, `billing/*` (Stripe customers, SetupIntents, cards, consent — every
+card is confirmed in-app onto a billing account; the hosted-Checkout `payment-method/setup`
+and `/complete` proxies were removed 2026-10-01),
 `POST /finalize` (flips the company live, enables the modules, starts the trials) and
 `POST /xero/disconnect` are forwarded as the caller with Flask's own status code.
 

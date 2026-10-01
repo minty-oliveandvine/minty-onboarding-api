@@ -349,11 +349,41 @@ def test_phone_length_is_enforced_server_side(client, auth, modules, phone):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("email", ["no-at-sign", "@nolocal.com", "nodomain@", "a b@c.com"])
+@pytest.mark.parametrize(
+    "email", ["no-at-sign", "@nolocal.com", "nodomain@", "a b@c.com", "a@b@c.com", "nodot@domain"]
+)
 def test_business_email_rejects_the_obviously_broken(client, auth, modules, email):
     resp = post_create(client, auth, entity_name="Email Co", business_email=email)
     assert resp.status_code == 400
     assert resp.json() == {"error": "Please enter a valid business email."}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("email", ["김철수@walk.test", "hello@회사.한국", "café@walk.test"])
+def test_business_email_is_english_only(client, auth, modules, email):
+    """Printable ASCII only (2026-10-01), refused in the wizard's own words -- and before the
+    company is created, like every contact-detail refusal."""
+    resp = post_create(client, auth, entity_name="Korean Email Co", business_email=email)
+    assert resp.status_code == 400
+    assert resp.json() == {
+        "error": "Email can only contain English letters, numbers and symbols."
+    }
+    assert not Entity.objects.filter(name="Korean Email Co").exists()
+
+
+@pytest.mark.django_db
+def test_update_holds_the_business_email_to_the_same_rule(client, auth, entity, modules):
+    entity.business_email = "old@example.com"
+    entity.save()
+
+    resp = put_entity(client, auth, entity.id, business_email="김철수@walk.test")
+
+    assert resp.status_code == 400
+    assert resp.json() == {
+        "error": "Email can only contain English letters, numbers and symbols."
+    }
+    entity.refresh_from_db()
+    assert entity.business_email == "old@example.com"
 
 
 @pytest.mark.django_db

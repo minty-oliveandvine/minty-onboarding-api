@@ -26,6 +26,7 @@ a user-supplied wildcard would otherwise widen the match to every row. Django's
 version is not carried over -- the protection is not dropped, it moved into the ORM.
 """
 
+import re
 import uuid as _uuid
 
 from shared_models.models import CountryInfo, CurrencyInfo
@@ -112,20 +113,32 @@ def contact_phone(value) -> tuple[str | None, str]:
     return digits, ""
 
 
+#: One "@", something either side, a dot in the domain, PRINTABLE ASCII ONLY -- the wizard's
+#: rule (minty-web ``lib/emailInput.ts`` ``EMAIL_RE`` and its copies) and minty-billing-api's.
+EMAIL_RE = re.compile(r"[\x21-\x3F\x41-\x7E]+@[\x21-\x3F\x41-\x7E]+\.[\x21-\x3F\x41-\x7E]+")
+
+#: The frontends' ``EMAIL_ASCII_HINT``, word for word.
+EMAIL_NOT_ENGLISH = "Email can only contain English letters, numbers and symbols."
+
+
 def business_email(value) -> tuple[str | None, str]:
     """Payload value -> ``(stored email or None, error message)``.
 
-    DELIBERATELY SHALLOW: one "@" with something either side, and no whitespace. This column
-    is the company's public contact address -- it never authenticates anybody and nothing is
-    ever sent to it to confirm it -- so a stricter parser would reject legitimate addresses
-    for no gain. Empty clears the field.
+    DELIBERATELY SHALLOW: ``EMAIL_RE`` and nothing more. This column is the company's public
+    contact address -- it never authenticates anybody and nothing is ever sent to it to
+    confirm it -- so a stricter parser would reject legitimate addresses for no gain. Empty
+    clears the field.
+
+    ENGLISH ONLY (2026-10-01): a non-ASCII character (Korean, accents) is refused in its own
+    words, before the shape check -- it is a rule, not a typo. Stored rows are not rewritten.
     """
     email = (value or "").strip()
     if not email:
         return None, ""
     if len(email) > 100:
         return None, "Business email must be 100 characters or fewer."
-    local, sep, domain = email.partition("@")
-    if not sep or not local or not domain or any(c.isspace() for c in email):
+    if not email.isascii():
+        return None, EMAIL_NOT_ENGLISH
+    if not EMAIL_RE.fullmatch(email):
         return None, "Please enter a valid business email."
     return email, ""

@@ -46,6 +46,13 @@ idempotent on (member, name, `status = onboarding`) so a retry resumes the aband
 are **resolved against the registries** (`resolve.country_code` accepts alpha-2, alpha-3
 or a unique name; `currency_id` only queries once the value is a uuid) and never stored
 unvalidated — they are foreign keys; phone and email are checked the way the wizard does.
+The business email (`resolve.business_email`, `POST /create` and `PUT /entity/{id}`) is
+English only since 2026-10-01: `resolve.EMAIL_RE` = printable ASCII minus "@", one "@", a dot
+in the domain (still shallow: `a+b@sub.domain.museum` passes). A non-ASCII address is a 400
+`"Email can only contain English letters, numbers and symbols."`; any other miss is a 400
+`"Please enter a valid business email."` (a dotless domain is one since that date). Stored rows
+are not rewritten. Invitation emails are not checked here: `POST /invite` forwards to Flask,
+which refuses non-ASCII itself, and its 400 reaches the wizard unchanged (`minty_client.proxy`).
 
 The optional business email (`entities.business_email`) is not just stored (2026-09-30): the
 billing engines (Minty and `minty-billing-api`, `notify.address_for`) send the company's trial

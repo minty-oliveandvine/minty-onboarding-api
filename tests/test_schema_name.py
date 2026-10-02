@@ -1,17 +1,22 @@
-"""The schema name is a setting: ``config.settings.DB_SCHEMA`` (env ``MINTY_DB_SCHEMA``, the
-same variable Minty reads). No application string may carry it; ``search_path`` and the raw
-queries read the setting. Comments and docstrings are free to say it."""
+"""The schema name is a setting: ``config.settings.DB_SCHEMA``, taken from ``?schema=`` on
+DATABASE_URL (the same URL, read the same way, as Minty). No application string may carry
+it; ``search_path`` and the raw queries read the setting. Comments and docstrings are free
+to say it. The one literal is the default in config/dburl.py."""
 
 from __future__ import annotations
 
 import ast
+import importlib
+import sys
 from pathlib import Path
 
-from django.conf import settings
+import pytest
+
+from config.dburl import parse_database_url
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "pettycashv3"
-ALLOWED = {"config/settings.py"}
+ALLOWED = {"config/dburl.py"}
 SKIP = ("tests/", "bills/tests/", "migrations/")
 
 
@@ -42,5 +47,34 @@ def test_no_application_string_carries_the_schema_name():
     assert hits == [], "read settings.DB_SCHEMA instead of spelling the schema"
 
 
+ALT_URL = "postgresql://postgres@localhost:5432/postgres?schema=pettycash_alt"
+
+
+def test_search_path_follows_the_url():
+    db, schema = parse_database_url(ALT_URL)
+    assert schema == "pettycash_alt"
+    assert db["OPTIONS"]["options"] == "-c search_path=pettycash_alt,public"
+
+
+def test_settings_take_the_schema_from_database_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", ALT_URL)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: False)
+    sys.modules.pop("config.settings", None)
+    try:
+        mod = importlib.import_module("config.settings")
+        assert mod.DB_SCHEMA == "pettycash_alt"
+        assert mod.DB_SCHEMA in mod.DATABASES["default"]["OPTIONS"]["options"]
+    finally:
+        # Put the test settings module back for the rest of the suite.
+        sys.modules.pop("config.settings", None)
+        importlib.import_module("config.settings_test")
+
+
 def test_search_path_follows_the_setting():
+    """Postgres test mode only: the live test database's search_path is DB_SCHEMA."""
+    from django.conf import settings
+
+    if settings.DATABASES["default"]["ENGINE"].endswith("sqlite3"):
+        pytest.skip("SQLite test database has no search_path (set MINTY_TEST_PG_URI)")
     assert settings.DB_SCHEMA in settings.DATABASES["default"]["OPTIONS"]["options"]

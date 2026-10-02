@@ -3,7 +3,7 @@
 ``POST /modules`` looks like the most obviously "entity" write in the wizard: the user ticks
 which modules they want, and the map table records it. It is not.
 
-``entity_function_map.is_enabled`` is not a fact of its own. billing-backend's
+``entity_function_map.is_enabled`` is not a fact of its own. minty-payment-request-api's
 ``core/entitlements.py`` states it plainly -- it is "a projection of
 ``entity_module_subscription``, which the subscription lifecycle writes". A module is granted
 when a trial or a subscription starts, never because a wizard step said so. Turning one on

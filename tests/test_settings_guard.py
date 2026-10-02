@@ -1,18 +1,19 @@
-"""config/settings refuses to boot with the placeholder SECRET_KEY outside DEBUG.
+"""config/settings refuses to boot with the placeholder SECRET_KEY outside development.
 
 Regression test for the 2026-09-14 production incident: the service ran with no
 SECRET_KEY set, fell back to the in-repo placeholder, and 401'd every authenticated call.
+APP_ENV decides: ``development`` is DEBUG, anything else (or unset) is production.
 """
 
 import importlib
-import os
 import sys
 
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 
 
 def _load_settings(monkeypatch, env):
-    for k in ("SECRET_KEY", "DEBUG"):
+    for k in ("SECRET_KEY", "APP_ENV"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -22,18 +23,30 @@ def _load_settings(monkeypatch, env):
     return importlib.import_module("config.settings")
 
 
-def test_placeholder_key_is_refused_when_debug_is_off(monkeypatch):
-    with pytest.raises(RuntimeError, match="SECRET_KEY is not set"):
-        _load_settings(monkeypatch, {"DEBUG": "false"})
+def test_placeholder_key_is_refused_in_production(monkeypatch):
+    with pytest.raises(ImproperlyConfigured, match="SECRET_KEY is not set"):
+        _load_settings(monkeypatch, {"APP_ENV": "production"})
 
 
-def test_placeholder_key_is_tolerated_in_debug(monkeypatch):
-    mod = _load_settings(monkeypatch, {"DEBUG": "true"})
+def test_unset_app_env_means_production(monkeypatch):
+    with pytest.raises(ImproperlyConfigured, match="SECRET_KEY is not set"):
+        _load_settings(monkeypatch, {})
+
+
+def test_unknown_app_env_means_production(monkeypatch):
+    with pytest.raises(ImproperlyConfigured, match="SECRET_KEY is not set"):
+        _load_settings(monkeypatch, {"APP_ENV": "staging"})
+
+
+def test_placeholder_key_is_tolerated_in_development(monkeypatch):
+    mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
+    assert mod.DEBUG is True
     assert mod.SECRET_KEY == "change-me-in-production"
 
 
-def test_a_real_key_boots_with_debug_off(monkeypatch):
-    mod = _load_settings(monkeypatch, {"DEBUG": "false", "SECRET_KEY": "x" * 64})
+def test_a_real_key_boots_in_production(monkeypatch):
+    mod = _load_settings(monkeypatch, {"APP_ENV": "production", "SECRET_KEY": "x" * 64})
+    assert mod.DEBUG is False
     assert mod.SECRET_KEY == "x" * 64
 
 

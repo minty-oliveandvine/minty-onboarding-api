@@ -48,7 +48,7 @@ PORTED = {
 #: subscription state, or a Flask-owned URL -- so duplicating it would mean two writers
 #: against something that permits only one.
 PROXIED = {
-    # Group D2 -- Xero chart of accounts, Xero contacts, billing-backend's bill codes
+    # Group D2 -- Xero chart of accounts, Xero contacts, minty-payment-request-api's bill codes
     "GET /account-codes",
     "POST /account-codes",
     "POST /contacts",

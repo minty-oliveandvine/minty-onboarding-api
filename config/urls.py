@@ -81,7 +81,7 @@ def health(request):
     queried would report unhealthy for a transient database blip and get the container
     killed mid-request. If a readiness probe is wanted later it should be its own path.
     """
-    return JsonResponse({"status": "ok", "service": "onboarding-backend"})
+    return JsonResponse({"status": "ok", "service": "minty-onboarding-api"})
 
 
 urlpatterns = [

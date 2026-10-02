@@ -217,7 +217,7 @@ def enable_module(db, modules):
 # path, so before this guard `access_token_for` really POSTed to XERO_TOKEN_SERVICE_URL.
 # With nothing on that port the call failed fast and read as "could not verify"; with a
 # dev Flask running it reached a real endpoint, and the suite's answer depended on what
-# was listening on localhost:5001. A test whose result depends on the developer's other
+# was listening on the Petty Cash port. A test whose result depends on the developer's other
 # terminals is not a test.
 #
 # Tests that need a response stub `requests.request` / `requests.post` / `requests.get`

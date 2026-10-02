@@ -132,7 +132,7 @@ def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
     granted = [code for code, enabled in state.items() if enabled]
     if granted:
         raise AssertionError(
-            "onboarding-backend may not enable a module: "
+            "minty-onboarding-api may not enable a module: "
             f"{granted}. entity_function_map.is_enabled is a projection of "
             "entity_module_subscription, which the subscription lifecycle writes. "
             "Route the grant through Flask instead."

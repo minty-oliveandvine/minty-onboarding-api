@@ -2,7 +2,7 @@
 
 THE BODY KEY IS ``error``, NOT ``detail``.
 
-billing-backend answers ``{"detail": ...}`` and its frontend reads that. This
+minty-payment-request-api answers ``{"detail": ...}`` and its frontend reads that. This
 service cannot copy it: the onboarding wizard reads ``result.error`` at some
 twenty call sites, and ``lib/errorCopy.js`` resolves user-facing copy from
 ``data.error ?? data.message``. A ``detail`` body reaches the wizard as an
@@ -24,7 +24,7 @@ logger = logging.getLogger("minty-onboarding")
 
 # Shown when we have nothing specific and useful to say. Keep it cause-neutral:
 # it fires for unknown reasons, so it must not assert one. Same sentence as
-# billing-backend's HOUSE_FALLBACK and the wizard's own fallback copy.
+# minty-payment-request-api's HOUSE_FALLBACK and the wizard's own fallback copy.
 HOUSE_FALLBACK = "Something went wrong on my end. Mind trying again?"
 
 
@@ -105,7 +105,7 @@ def validation_message(errors):
     ninja's own handler puts that list straight into the body, and the wizard
     would render the serialised JSON in a toast. Whatever reaches a user has to
     be a sentence, so build one here rather than unpicking the structure in the
-    frontend. Lifted from billing-backend/core/exceptions.py, which solved this
+    frontend. Lifted from minty-payment-request-api/core/exceptions.py, which solved this
     for the same reason.
     """
     names = _field_names(errors)

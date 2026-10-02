@@ -4,7 +4,7 @@ THE DISTINCTION THAT MATTERS: USING vs REFRESHING
 
 The write rule says Flask owns the Xero rail, and it is easy to read that as "this
 service must never speak to Xero at all". That is stricter than the actual constraint,
-and stricter than what billing-backend does.
+and stricter than what minty-payment-request-api does.
 
 The constraint is that only ONE service may call Xero's ``/connect/token``. Xero rotates
 the refresh token on every use and invalidates the previous one, so a second refresher
@@ -13,19 +13,19 @@ broken until they reconnect by hand. Flask is that one service, and it serialise
 refreshes behind an advisory lock.
 
 Using an access token Flask already minted is different: it is a read against Xero's API
-with a credential somebody else is responsible for keeping alive. billing-backend does
+with a credential somebody else is responsible for keeping alive. minty-payment-request-api does
 exactly this to publish bills. So does this module.
 
 Concretely: ASK for a token here, then call Xero. Never put XERO_CLIENT_ID or
 XERO_CLIENT_SECRET in this service's settings -- that is the line, and it is the one
-billing-backend's settings.py draws too.
+minty-payment-request-api's settings.py draws too.
 
 THE ASSERTION
 
 ``entity_id`` travels inside the SIGNED claims, not the request body, so a leaked
 assertion cannot be replayed against a different entity. Flask reads it from the claims
 and ignores the body entirely. Sixty-second expiry, HS256, shared SECRET_KEY, scope
-``xero-access-token`` -- the shape billing-backend already uses, so Flask's endpoint needs
+``xero-access-token`` -- the shape minty-payment-request-api already uses, so Flask's endpoint needs
 no change to serve this service.
 """
 

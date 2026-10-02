@@ -4,7 +4,7 @@ EVERY MODEL HERE IS ``managed = False`` AND THIS REPO SHIPS NO MIGRATIONS.
 
 Alembic in Minty is the owner-of-record for all of pettycashv3. A new column means
 a migration there first, then a hand-edit here. That hand-sync is a real cost --
-billing-backend's equivalent file carries a docstring naming the Flask module and
+minty-payment-request-api's equivalent file carries a docstring naming the Flask module and
 the Alembic revision that owns one column, because the drift is tracked by hand --
 but it is the established convention, and inventing a second DDL owner is worse.
 
@@ -20,7 +20,7 @@ Read-only: user, country_info, currency_info, sale_info, entity_function,
 should not be. Onboarding Step 2 picks modules, so writing the module map from here is
 the obvious move -- but ``is_enabled`` on that row is not a fact of its own. It is a
 projection of ``entity_module_subscription``, which the subscription lifecycle writes
-(billing-backend/core/entitlements.py says so, and Flask's
+(minty-payment-request-api/core/entitlements.py says so, and Flask's
 blueprints/entity/services/modules.py declares itself "the single place that writes to
 them"). A module is granted by a trial or a subscription starting, never by a wizard
 step. So POST /api/onboarding/modules stays in Flask.
@@ -123,7 +123,7 @@ class User(models.Model):
 
     Deliberately omits the Xero OAuth token columns (``access_token``,
     ``refresh_token``, ``id_token``, ``expires_in``, ``token_created_at``) that
-    billing-backend's mirror carries. Nothing here may use a Xero token -- Flask is the
+    minty-payment-request-api's mirror carries. Nothing here may use a Xero token -- Flask is the
     sole refresher -- and a column that must not be read is better absent than present.
     """
 
@@ -204,7 +204,7 @@ class Entity(models.Model):
 class UserEntity(models.Model):
     """Membership. WRITABLE -- onboarding adds the creator as ``admin``.
 
-    COMPOSITE PRIMARY KEY, modelled as one. billing-backend's mirror declares
+    COMPOSITE PRIMARY KEY, modelled as one. minty-payment-request-api's mirror declares
     ``user = OneToOneField(..., primary_key=True)``, which tells Django a user belongs
     to exactly ONE entity. That is false -- a user creates several companies and gets a
     row per company -- and it is harmless there only because that service never inserts
@@ -285,7 +285,7 @@ class EntityFunction(models.Model):
     """Read-only. The module catalog: which modules exist at all.
 
     ``is_active`` says whether a module is OFFERED, never who may use it. Flask deleted
-    a fallback that read it as permission, and billing-backend's entitlements.py repeats
+    a fallback that read it as permission, and minty-payment-request-api's entitlements.py repeats
     the warning, because falling back to it hands a module to every entity that never
     subscribed.
     """

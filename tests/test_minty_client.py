@@ -100,7 +100,7 @@ def test_forward_builds_the_flask_url_from_settings(rec):
     minty_client.forward(Req(), "/api/onboarding/modules")
     # With or without a leading slash, the same URL -- one slash between base and path.
     urls = {url for _, url, _ in r.calls}
-    assert urls == {f"{settings.FLASK_APP_URL}/api/onboarding/modules"}
+    assert urls == {f"{settings.PETTY_CASH_URL}/api/onboarding/modules"}
 
 
 def test_forward_sends_the_callers_own_token_and_asks_for_json(rec):

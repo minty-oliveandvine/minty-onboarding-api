@@ -114,7 +114,7 @@ def contact_phone(value) -> tuple[str | None, str]:
 
 
 #: One "@", something either side, a dot in the domain, PRINTABLE ASCII ONLY -- the wizard's
-#: rule (minty-web ``lib/emailInput.ts`` ``EMAIL_RE`` and its copies) and minty-billing-api's.
+#: rule (minty-web ``lib/emailInput.ts`` ``EMAIL_RE`` and its copies) and minty-subscription-api's.
 EMAIL_RE = re.compile(r"[\x21-\x3F\x41-\x7E]+@[\x21-\x3F\x41-\x7E]+\.[\x21-\x3F\x41-\x7E]+")
 
 #: The frontends' ``EMAIL_ASCII_HINT``, word for word.

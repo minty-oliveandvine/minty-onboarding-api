@@ -8,7 +8,7 @@ write". Stripe and Xero both have exactly one legitimate writer, and it is Flask
   * Xero rotates its refresh token on every use and invalidates the previous one. Two
     services refreshing means one of them POSTs a spent token, gets 400 invalid_grant,
     and the customer's Xero connection stays broken until they manually reconnect.
-    billing-backend/config/settings.py makes the same call for the same reason and
+    minty-payment-request-api/config/settings.py makes the same call for the same reason and
     leaves XERO_CLIENT_ID empty on purpose.
   * Stripe state lives in local tables with no webhook receiver, and Flask's
     subscription/services/checkout.py is ~3,200 lines of trial, proration and dunning
@@ -54,7 +54,7 @@ UNREACHABLE = HOUSE_FALLBACK
 
 
 def _url(path: str) -> str:
-    return f"{settings.FLASK_APP_URL}/{path.lstrip('/')}"
+    return f"{settings.PETTY_CASH_URL}/{path.lstrip('/')}"
 
 
 def bearer_from(request) -> str:

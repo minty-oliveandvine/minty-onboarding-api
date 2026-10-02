@@ -2,7 +2,7 @@
 
 One rule, and it is the same one every ``/api/onboarding/*`` route in Flask applies:
 the caller must hold a ``user_entity`` row for the entity they named. There is no role
-matrix here -- unlike billing-backend, which grades cashier / shop_manager / accountant
+matrix here -- unlike minty-payment-request-api, which grades cashier / shop_manager / accountant
 / admin against each action. Onboarding runs before any of that exists: the person
 walking the wizard created the company thirty seconds ago and is its only member.
 

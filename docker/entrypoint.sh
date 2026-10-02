@@ -2,11 +2,13 @@
 # Container entrypoint for the onboarding Django API.
 #
 # This service is a TENANT of the schema Flask owns: settings.py pins search_path to
-# pettycashv3, and shared_models maps tables Flask's Alembic migrations create. So wait
-# for both the database and that schema rather than creating the schema ourselves, which
-# would race Alembic and let Django win tables it is only supposed to read.
+# the ?schema= on DATABASE_URL (default pettycashv3), and shared_models maps tables Flask's
+# Alembic migrations create. So wait for both the database and that schema rather than
+# creating the schema ourselves, which would race Alembic and let Django win tables it is
+# only supposed to read. DATABASE_URL is parsed by config/dburl.py, exactly as settings.py
+# parses it, so the two cannot disagree about where the database is.
 #
-# NOTE: no `manage.py migrate` here, unlike billing-backend. This service owns zero
+# NOTE: no `manage.py migrate` here, unlike minty-payment-request-api. This service owns zero
 # tables and ships zero migrations by design -- running migrate would be a no-op at best
 # and, if a migration ever appeared by accident, a schema fight at worst.
 set -eu
@@ -17,11 +19,9 @@ import time
 
 import psycopg2
 
-host = os.environ.get("DB_HOST", "localhost")
-port = os.environ.get("DB_PORT", "5432")
-dbname = os.environ.get("POSTGRES_DB", "postgres")
-user = os.environ.get("POSTGRES_USER", "postgres")
-password = os.environ.get("POSTGRES_PASSWORD", "")
+from config.dburl import database_url, parse_database_url
+
+db, schema = parse_database_url(database_url())
 
 # Seconds, not attempts: the schema arrives only once Flask has finished its own
 # migrations, which on a cold volume takes a while.
@@ -31,17 +31,22 @@ last_error = None
 while time.monotonic() < deadline:
     try:
         conn = psycopg2.connect(
-            host=host, port=port, dbname=dbname, user=user, password=password
+            host=db["HOST"],
+            port=db["PORT"],
+            dbname=db["NAME"],
+            user=db["USER"],
+            password=db["PASSWORD"],
+            **db["OPTIONS"],
         )
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT 1 FROM information_schema.schemata WHERE schema_name = %s",
-                    [os.environ.get("MINTY_DB_SCHEMA", "pettycashv3")],
+                    [schema],
                 )
                 if cur.fetchone():
                     break
-                last_error = "schema " + os.environ.get("MINTY_DB_SCHEMA", "pettycashv3") + " does not exist yet"
+                last_error = f"schema {schema} does not exist yet"
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 - any connection failure is a retry

@@ -1,9 +1,9 @@
-# onboarding-backend
+# minty-onboarding-api
 
 The onboarding wizard's API, extracted from Minty (the Flask "Module 1" monolith).
-Django 5.2 + django-ninja, port **8001**.
+Django 5.2 + django-ninja, port **8030** (`PORT` overrides it in the container).
 
-The wizard frontend lives in a separate repo (`../onboarding`, Next.js, port 3001).
+The wizard frontend lives in a separate repo (`../minty-onboarding-web`, Next.js, port 3030).
 
 ---
 
@@ -34,7 +34,7 @@ same `pettycashv3` schema that Flask owns, and Alembic in Minty is the owner-of-
 for all DDL.
 
 A new column means: **Alembic migration in Minty first, then hand-edit the model here.**
-That hand-sync is a real cost, and it is the established convention — `billing-backend`
+That hand-sync is a real cost, and it is the established convention — `minty-payment-request-api`
 does the same, and `flask db migrate` is unusable in Minty anyway (it proposes recreating
 all 42 tables).
 
@@ -65,7 +65,7 @@ applied to a direct call.
 
 ### 3. The error body key is `error`, not `detail`.
 
-`billing-backend` answers `{"detail": ...}`. This service must not, because the wizard
+`minty-payment-request-api` answers `{"detail": ...}`. This service must not, because the wizard
 reads `result.error` at some twenty call sites and resolves copy from
 `data.error ?? data.message`. A `detail` body reaches the user as a blank toast.
 
@@ -83,9 +83,9 @@ Flask **mints** the JWT (60-minute HS256, `scope: "onboarding"`). This service o
 boot failure, it is a 401 on every request, which the wizard reports as an expired session
 and turns into a login loop.
 
-Two deliberate departures from `billing-backend`:
+Two deliberate departures from `minty-payment-request-api`:
 
-| | billing-backend | here |
+| | minty-payment-request-api | here |
 |---|---|---|
 | Entity role at the door | Required | **Not required** — the first call *creates* the company the caller will have a role on. Membership is checked per endpoint via `core/permissions.py::entity_for_member`. |
 | Entity id | `X-Entity-Id` header | **Query or body** — so the header is left out of `CORS_ALLOW_HEADERS` rather than sent and silently ignored. |
@@ -168,9 +168,9 @@ verification and the permission port, and every `/api/onboarding/*` endpoint gro
 ```sh
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
-cp .env.example .env          # then set SECRET_KEY and the database to match Minty
+cp .env.example .env          # then set SECRET_KEY and DATABASE_URL to match Minty
 .venv/Scripts/python manage.py check
-.venv/Scripts/python manage.py runserver 8001
+.venv/Scripts/python manage.py runserver 8030
 ```
 
 `manage.py migrate` is **not** part of setup — see rule 1.

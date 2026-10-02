@@ -50,7 +50,7 @@ def get_payment_method(request, entity_id: str = ""):
 #
 # These are DELIBERATE DUPLICATES of the payer portal's /api/me/billing/payment-methods*,
 # sharing service code underneath. They exist only because the portal's routes hard-code
-# Access-Control-Allow-Origin to FRONTEND_APP_URL, and onboarding is a different origin.
+# Access-Control-Allow-Origin to PAYMENT_REQUEST_WEB_URL, and onboarding is a different origin.
 # The wizard's own lib/billing.js carries the warning: do not "simplify" these to the
 # /api/me routes.
 #
@@ -67,7 +67,7 @@ def get_billing_payment_methods(request):
 def post_setup_intent(request, payload: dict = Body(default={})):
     """Returns a Stripe SetupIntent AND the publishable key.
 
-    The key comes from Flask rather than from a NEXT_PUBLIC_ env var on purpose: one service
+    The key comes from Flask rather than from a wizard build-time env var on purpose: one service
     owns the Stripe account, so the browser cannot end up talking to a different account than
     the backend does.
     """

@@ -17,7 +17,7 @@ service whose founding rule is that Flask owns the Xero rail:
     ``entity/services/xero_account_mapping_post.py``.
   * ``contacts`` and ``contacts/create`` read and create Xero contacts, in the same file.
   * ``bill-codes`` is a third service's territory entirely: it works on
-    ``entity_bill_account_xero``, which is billing-backend's snapshot table, and it imports
+    ``entity_bill_account_xero``, which is minty-payment-request-api's snapshot table, and it imports
     ``sync_xero_coa_bill`` from Flask's 2,530-line ``entity/services/settings.py``.
 
 So roughly 1,400 lines of Xero and bills integration, duplicated in a second language, to be
@@ -135,7 +135,7 @@ def post_contacts_create(request, payload: dict = Body(default={})):
 
 @pettycash_router.get("/bill-codes")
 def get_bill_codes(request, entity_id: str = ""):
-    """Bill chart-of-accounts tick state, from billing-backend's snapshot table."""
+    """Bill chart-of-accounts tick state, from minty-payment-request-api's snapshot table."""
     entity_id = require_entity_id(entity_id)
     return minty_client.proxy(
         request, "/api/onboarding/bill-codes", method="GET",

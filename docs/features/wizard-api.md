@@ -1,6 +1,6 @@
 # The wizard's API — `/api/onboarding/*`
 
-Everything the onboarding wizard (`../onboarding`) calls, served here byte-for-byte on the
+Everything the onboarding wizard (`../minty-onboarding-web`) calls, served here byte-for-byte on the
 same paths Minty's Flask still answers (`Minty/blueprints/entity/routes/create.py`) — the
 wizard's `lib/apiRoutes.ts` decides which service gets each path. Routers:
 `onboarding/api_reference.py`, `api_state.py`, `api_entity.py`, `api_pettycash.py`,
@@ -55,7 +55,7 @@ are not rewritten. Invitation emails are not checked here: `POST /invite` forwar
 which refuses non-ASCII itself, and its 400 reaches the wizard unchanged (`minty_client.proxy`).
 
 The optional business email (`entities.business_email`) is not just stored (2026-09-30): the
-billing engines (Minty and `minty-billing-api`, `notify.address_for`) send the company's trial
+billing engines (Minty and `minty-subscription-api`, `notify.address_for`) send the company's trial
 ending warning there, and a billing account with no billing email of its own mails its payment
 emails - and prints its invoices' Bill to - to the business email when every company on the
 account shares it. Blank means the payer's own address is used instead.
@@ -93,4 +93,4 @@ and `/complete` proxies were removed 2026-10-01),
 `test_reference.py`, `test_routes.py` (every path is registered), `test_char_schema.py`
 and `test_schema_name.py` (the schema), `test_settings_guard.py`; 371 passed + 1 skipped on
 2026-10-01 (the three dark-switch tests went with the switch) on Postgres against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
-`onboarding/e2e` (`stack`, `resume`, `xero`, `walk`).
+`minty-onboarding-web/e2e` (`stack`, `resume`, `xero`, `walk`).

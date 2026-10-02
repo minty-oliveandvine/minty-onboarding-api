@@ -7,10 +7,10 @@ and hands it to the wizard in the launch URL. Flask also owns the email-OTP logi
 ``itsdangerous`` session handoff behind it. Everything here is verification, and adding a
 mint would create a second issuer for one identity.
 
-HOW THIS DIFFERS FROM billing-backend's BearerAuth, and why
+HOW THIS DIFFERS FROM minty-payment-request-api's BearerAuth, and why
 
 1. A ROLE ON AN ENTITY IS NOT REQUIRED AT THE DOOR.
-   billing-backend 401s a caller holding no role on the entity in the X-Entity-Id
+   minty-payment-request-api 401s a caller holding no role on the entity in the X-Entity-Id
    header, which is right for it: a bill belongs to a company, so a caller with no
    standing there has no business reaching one. Onboarding cannot do that. Its FIRST
    authenticated call, POST /api/onboarding/create, exists precisely to create the
@@ -35,7 +35,7 @@ HOW THIS DIFFERS FROM billing-backend's BearerAuth, and why
    ACCEPT_ANY_SCOPE exists to turn it off if a caller nobody predicted breaks. Prefer
    fixing the caller.
 
-WHAT IS DELIBERATELY NOT CARRIED OVER: billing-backend logs the SECRET_KEY length and a
+WHAT IS DELIBERATELY NOT CARRIED OVER: minty-payment-request-api logs the SECRET_KEY length and a
 truncated hash of it on every authentication attempt. That is a debugging aid pointed at
 a secret; it is not repeated here.
 """

@@ -217,34 +217,36 @@ def test_a_missing_module_catalog_does_not_block_creation(client, auth):
 # Default sales methods
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_a_new_company_is_linked_to_the_eleven_default_methods(client, auth, modules):
-    """Cash + seven electronic + three delivery, in that order; Cash is type 'other' keyed
-    cash_sales (the closing-balance figure is found by that key)."""
+def test_a_new_company_is_linked_to_cash_only(client, auth, modules):
+    """Cash, type 'other' keyed cash_sales (the closing-balance figure is found by that key),
+    and NO electronic or delivery method: those start empty on the wizard step until the
+    user presses Auto Fill, so a seeded one would come back through /state as a fake choice."""
     entity_id = post_create(client, auth, entity_name="Fresh Co").json()["entity_id"]
-    links = list(
-        EntitySaleSetting.objects.filter(entity_id=entity_id).select_related("sale")
-        .order_by("sale__type", "display_order")
-    )
-    assert len(links) == 11
-    by_type = {}
-    for link in links:
-        by_type.setdefault(link.sale.type, []).append(link.sale.sale_name)
-    assert by_type["electronic"] == ["Visa", "Alipay", "WeChat Pay", "Mastercard", "UnionPay", "Amex", "Octopus"]
-    assert by_type["delivery"] == ["Food Panda", "Keeta", "OpenRice"]
-    cash = [l for l in links if l.sale.type == "other"]
-    assert len(cash) == 1 and cash[0].sale.sale_name == "Cash" and cash[0].sale.value_name == "cash_sales"
-    assert all(link.is_active for link in links)
+    links = list(EntitySaleSetting.objects.filter(entity_id=entity_id).select_related("sale"))
+    assert len(links) == 1
+    cash = links[0]
+    assert cash.sale.type == "other" and cash.sale.sale_name == "Cash" and cash.sale.value_name == "cash_sales"
+    assert cash.is_active
+
+
+@pytest.mark.django_db
+def test_a_new_company_shows_no_sales_methods_in_state(client, auth, modules):
+    """The wizard's electronic and delivery lists come from /state; both start empty."""
+    entity_id = post_create(client, auth, entity_name="Empty Co").json()["entity_id"]
+    resp = client.get(f"/api/onboarding/state?entity_id={entity_id}", **auth)
+    assert resp.status_code == 200
+    assert resp.json()["sales_methods"] == {"electronic": [], "delivery": []}
 
 
 @pytest.mark.django_db
 def test_defaults_already_in_the_catalogue_are_linked_not_duplicated(client, auth, modules):
-    """A catalogue that already has Visa (any spelling) gets no second Visa row."""
-    visa = SaleInfo.objects.create(
-        id=uuid.uuid4(), sale_name="VISA", type="electronic", value_name="visa_sales", enabled=True,
+    """A catalogue that already has Cash (any spelling) gets no second Cash row."""
+    cash = SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="CASH", type="other", value_name="cash_sales", enabled=True,
     )
     entity_id = post_create(client, auth, entity_name="Catalog Co").json()["entity_id"]
-    assert SaleInfo.objects.filter(value_name="visa_sales").count() == 1
-    assert EntitySaleSetting.objects.filter(entity_id=entity_id, sale=visa).exists()
+    assert SaleInfo.objects.filter(value_name="cash_sales").count() == 1
+    assert EntitySaleSetting.objects.filter(entity_id=entity_id, sale=cash).exists()
 
 
 @pytest.mark.django_db
@@ -254,7 +256,7 @@ def test_another_companys_custom_method_is_not_a_default(client, auth, modules, 
     new_id = post_create(client, auth, entity_name="Other Co").json()["entity_id"]
     names = {l.sale.sale_name for l in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")}
     assert "Someone's Method" not in names
-    assert len(names) == 11
+    assert names == {"Cash"}
 
 
 # ---------------------------------------------------------------------------

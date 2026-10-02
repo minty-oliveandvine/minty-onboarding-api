@@ -70,28 +70,25 @@ DEFAULT_MODULE_STATE: dict[str, bool] = {code: False for code in MODULE_CODES}
 CREATOR_ROLE = "admin"
 
 
-#: The methods a brand-new company starts with, and their order. The catalogue itself is
-#: global; a default that is not in it yet (a fresh database) is added. Cash leads and is
-#: type ``other`` keyed ``cash_sales``: the closing-balance figure is found by that key.
+#: The methods a brand-new company starts with. The catalogue itself is global; a default
+#: that is not in it yet (a fresh database) is added. ONLY Cash: type ``other`` keyed
+#: ``cash_sales``, the closing-balance figure is found by that key.
+#:
+#: Electronic and delivery methods are NOT seeded (user decision 2026-10-02). They are the
+#: user's own picks on the wizard's Petty Cash Settings step, which starts empty and is filled
+#: only by its Auto Fill button (the same list Flask seeds: Visa ... Octopus / Food Panda,
+#: Keeta, OpenRice). Seeded here, they came back through GET /state looking like choices the
+#: user had made. Payment Request has no sales methods, so a company without Petty Cash
+#: loses nothing.
 DEFAULT_SALES_METHODS = (
     # (name, value_name, type, order)
     ("Cash", "cash_sales", SaleType.OTHER, 0),
-    ("Visa", "visa_sales", SaleType.ELECTRONIC, 1),
-    ("Alipay", "alipay_sales", SaleType.ELECTRONIC, 2),
-    ("WeChat Pay", "wechat_sales", SaleType.ELECTRONIC, 3),
-    ("Mastercard", "master_sales", SaleType.ELECTRONIC, 4),
-    ("UnionPay", "unionpay_sales", SaleType.ELECTRONIC, 5),
-    ("Amex", "amex_sales", SaleType.ELECTRONIC, 6),
-    ("Octopus", "octopus_sales", SaleType.ELECTRONIC, 7),
-    ("Food Panda", "foodpanda_sales", SaleType.DELIVERY, 1),
-    ("Keeta", "keeta_sales", SaleType.DELIVERY, 2),
-    ("OpenRice", "openrice_sales", SaleType.DELIVERY, 3),
 )
 
 
 def _seed_default_sales_methods(entity_id: str) -> None:
-    """Link a new company to the default sales methods (same list as Flask's
-    ``create_default_entity_settings``). Idempotent per (entity, catalogue row)."""
+    """Link a new company to the default sales methods (Cash only -- see
+    DEFAULT_SALES_METHODS). Idempotent per (entity, catalogue row)."""
     from onboarding.services.sales_methods import ensure_catalog_row
 
     existing = set(

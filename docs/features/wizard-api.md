@@ -40,7 +40,9 @@ Step ids: 1 Basic, 2 Modules, 3 Invite, 4 Accounting, 5 Sales, 6 Account code, 7
 
 ## The company (`services/entity_create.py`, `resolve.py`)
 
-`POST /create` — creates the company owned by the caller with its default settings;
+`POST /create` — creates the company owned by the caller with its default settings (sales
+methods: **Cash only** — no electronic or delivery method is seeded, so the wizard's lists start
+empty until its Auto Fill);
 idempotent on (member, name, `status = onboarding`) so a retry resumes the abandoned row
 (`created: false`). `PUT /entity/{id}` edits an in-progress one. Country and currency
 are **resolved against the registries** (`resolve.country_code` accepts alpha-2, alpha-3

@@ -66,7 +66,9 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     assert set(grants) == set(modules) and not any(m.is_enabled for m in grants.values())
     assert all(str(m.created_by) == str(user.id) for m in grants.values())
     defaults = EntitySaleSetting.objects.filter(entity_id=entity_id)
-    assert defaults.count() == 11 and all(s.is_active for s in defaults)
+    # Cash only: electronic/delivery start empty until the wizard's Auto Fill (2026-10-02).
+    assert [s.sale.value_name for s in defaults.select_related("sale")] == ["cash_sales"]
+    assert all(s.is_active for s in defaults)
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_MODULE
 
     # ---- step 2: the module (Flask grants it; the row is what Flask writes) ------------------

@@ -11,6 +11,7 @@ tokens, module grants and mail to Flask.
 |---|---|
 | Verifying the onboarding token, membership per endpoint, the permission port, what this service never does | [authentication.md](authentication.md) — Minty's `docs/features/authentication.md` has the system-wide picture |
 | Every `/api/onboarding/*` endpoint: reference data, resume state, the company, petty-cash setup, invitations, the proxies | [wizard-api.md](wizard-api.md) |
+| Manual QA checklist for this service, alongside the automated suites | [qa-checklist.md](qa-checklist.md) |
 
 The three rules the service is built on (a SQLAlchemy `default=` is invisible to Django;
 Alembic owns the schema; whoever owns the external rail owns the write), the migration

@@ -13,7 +13,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 
 def _load_settings(monkeypatch, env):
-    for k in ("SECRET_KEY", "APP_ENV"):
+    for k in ("SECRET_KEY", "APP_ENV", "SUBSCRIPTION_API_URL"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -45,9 +45,24 @@ def test_placeholder_key_is_tolerated_in_development(monkeypatch):
 
 
 def test_a_real_key_boots_in_production(monkeypatch):
-    mod = _load_settings(monkeypatch, {"APP_ENV": "production", "SECRET_KEY": "x" * 64})
+    mod = _load_settings(monkeypatch, {
+        "APP_ENV": "production", "SECRET_KEY": "x" * 64,
+        "SUBSCRIPTION_API_URL": "https://subscription.example/",
+    })
     assert mod.DEBUG is False
     assert mod.SECRET_KEY == "x" * 64
+    assert mod.SUBSCRIPTION_API_URL == "https://subscription.example"
+
+
+def test_production_refuses_to_boot_without_the_subscription_api(monkeypatch):
+    """Cards, consent and finalize's trial start all go there; no silent localhost."""
+    with pytest.raises(ImproperlyConfigured, match="SUBSCRIPTION_API_URL is not set"):
+        _load_settings(monkeypatch, {"APP_ENV": "production", "SECRET_KEY": "x" * 64})
+
+
+def test_development_defaults_the_subscription_api_to_localhost(monkeypatch):
+    mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
+    assert mod.SUBSCRIPTION_API_URL == "http://localhost:8000"
 
 
 @pytest.fixture(autouse=True)

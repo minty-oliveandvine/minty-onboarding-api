@@ -51,4 +51,5 @@ SHARED_MODELS_MANAGED_FOR_TESTING = not _PG_URI  # tables come from the schema f
 # exists so an un-stubbed call fails fast against an obviously fake host instead of
 # quietly hitting a developer localhost.
 PETTY_CASH_URL = "http://flask.invalid"
+SUBSCRIPTION_API_URL = "http://subscription-api.invalid"
 XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"

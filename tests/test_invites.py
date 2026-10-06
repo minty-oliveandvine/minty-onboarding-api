@@ -251,7 +251,7 @@ def test_sending_an_invite_is_forwarded_to_flask(client, auth, entity, monkeypat
     """
     seen = {}
 
-    def fake_forward(request, path, *, method="POST", json=None, params=None):
+    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
         seen.update(path=path, method=method, json=json)
         return {
             "status": "success",

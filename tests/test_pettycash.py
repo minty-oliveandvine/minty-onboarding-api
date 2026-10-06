@@ -496,7 +496,7 @@ def test_a_proxied_endpoint_forwards_and_relays_the_status(
     """
     seen = {}
 
-    def fake_forward(request, path, *, method="POST", json=None, params=None):
+    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
         seen.update(path=path, method=method, json=json, params=params)
         return {"connected": False, "error": "Connect to Xero first."}, 409
 
@@ -514,7 +514,7 @@ def test_a_proxied_endpoint_forwards_and_relays_the_status(
 def test_a_proxied_post_forwards_the_body_unchanged(client, auth, entity, monkeypatch):
     seen = {}
 
-    def fake_forward(request, path, *, method="POST", json=None, params=None):
+    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
         seen.update(path=path, json=json)
         return {"status": "success"}, 200
 

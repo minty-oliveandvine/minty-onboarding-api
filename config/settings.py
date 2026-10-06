@@ -112,7 +112,7 @@ TIME_ZONE = "UTC"
 DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
 
 # ---------------------------------------------------------------------------
-# Cross-module: the Flask app
+# Cross-module: the Flask app and the subscription API
 #
 # There are no STRIPE_* or XERO_* credentials in this service, and adding any
 # would be a bug. Whoever owns the external rail owns the write:
@@ -120,16 +120,25 @@ DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
 #   * Xero rotates refresh tokens on every use and invalidates the previous one,
 #     so only ONE service may call /connect/token. That service is Flask.
 #     minty-payment-request-api's settings.py makes the same choice for the same reason.
-#   * Stripe state lives in local tables with no webhook receiver, and Flask's
-#     subscription/services/checkout.py is 3,200 lines of trial, proration and
-#     dunning logic reading them as source of truth. A second writer there is a
-#     money bug, not a merge conflict.
+#   * Stripe and the subscription tables have one writer, minty-subscription-api
+#     (the subscription engine). A second writer there is a money bug, not a merge
+#     conflict.
 #
-# So anything touching cards, trials, billing consent or a Xero token is a call
-# to Flask. core/minty_client.py is the only module that makes those calls, so
-# the rule above is enforceable by reading one file.
+# So anything touching a Xero token or a module grant is a call to Flask, and
+# anything touching cards, trials or billing consent is a call to the
+# subscription API. core/minty_client.py and core/subscription_client.py are the
+# only modules that make those calls, so the rule is enforceable by reading two
+# files.
 # ---------------------------------------------------------------------------
 PETTY_CASH_URL = os.environ.get("PETTY_CASH_URL", "http://localhost:8010").rstrip("/")
+# Required outside development: a missing value would send every card, consent and
+# finalize call to a localhost that does not exist on the host, and the wizard would
+# only ever say "something went wrong".
+SUBSCRIPTION_API_URL = os.environ.get("SUBSCRIPTION_API_URL", "").strip().rstrip("/")
+if not SUBSCRIPTION_API_URL:
+    if not DEBUG:
+        raise ImproperlyConfigured("SUBSCRIPTION_API_URL is not set.")
+    SUBSCRIPTION_API_URL = "http://localhost:8000"
 # Seconds. A constant, not configuration.
 MINTY_PROXY_TIMEOUT = 20
 

@@ -49,19 +49,22 @@ There are no `STRIPE_*` or `XERO_*` credentials here, and adding any is a bug:
 - **Xero** rotates its refresh token on every use and invalidates the previous one. Two
   services refreshing means one POSTs a spent token, gets `400 invalid_grant`, and the
   customer's Xero connection stays broken until they manually reconnect.
-- **Stripe** state lives in local tables with no webhook receiver, and Flask's
-  `subscription/services/checkout.py` is ~3,200 lines of trial, proration and dunning
-  logic treating them as source of truth. A second writer there charges twice.
+- **Stripe** state lives in local tables with no webhook receiver, and the subscription
+  engine (minty-subscription-api since 2026-10-06; Flask's copy is deleted) is thousands
+  of lines of trial, proration and dunning logic treating them as source of truth. A
+  second writer there charges twice.
 
-So Flask keeps: cards, billing accounts, billing consent, trials, `finalize`, every Xero
-token use, and **module enablement** (a module is granted by the subscription lifecycle,
-not by a wizard step — `entity_function_map.is_enabled` is a projection of
-`entity_module_subscription`).
+So minty-subscription-api keeps cards, billing accounts, billing consent and trials (since
+2026-10-06); Flask keeps every Xero token use and **module enablement** (a module is
+granted by the subscription lifecycle, not by a wizard step — `entity_function_map.is_enabled`
+is a projection of `entity_module_subscription`). `finalize` is implemented here since
+2026-10-06: it writes only `entities.status` and asks the subscription API to start the trials.
 
-**`core/minty_client.py` is the only module that calls Flask.** That is what makes the
-rule checkable by reading one file. It forwards the caller's own bearer token, so the
-proxy carries no privilege of its own and Flask applies exactly the checks it would have
-applied to a direct call.
+**`core/minty_client.py` is the only module that calls Flask, and
+`core/subscription_client.py` the only one that calls minty-subscription-api** (it reuses
+`minty_client`'s transport). That is what makes the rule checkable by reading two files.
+Both forward the caller's own bearer token, so the proxy carries no privilege of its own
+and the upstream applies exactly the checks it would have applied to a direct call.
 
 ### 3. The error body key is `error`, not `detail`.
 
@@ -99,7 +102,8 @@ turns it off if that ever proves too strict — prefer fixing the caller.
 
 ## Migration groups
 
-Flask's routes stay live throughout. The frontend's `lib/apiRoutes.js` decides which base
+Flask's routes stay live throughout (except `payment-method`, `billing/*` and `finalize`,
+deleted from Flask 2026-10-06). The frontend's `lib/apiRoutes.js` decides which base
 URL answers each path, so every group is independently revertible — moving a group is one
 line, and reverting is the same line.
 
@@ -113,16 +117,18 @@ line, and reverting is the same line.
 | **D2** Xero & bills | `account-codes`, `contacts`, `contacts/create`, `bill-codes` | **Flask** | Proxy |
 | **E** Invite send | `POST invite` | **Flask** | Proxy — the email links into a Flask route |
 | **F** Modules | `modules` | **Flask** | Proxy — a module grant is a subscription write |
-| **G** Money & Xero | `payment-method`, `billing/*`, `finalize`, `xero/disconnect` | **Flask** | Proxy |
+| **G** Money | `payment-method`, `billing/*` | **minty-subscription-api** | Proxy (since 2026-10-06) |
+| **G** Finish | `finalize` | Django | **Ported** (2026-10-06) — calls the subscription API's `trials/start` |
+| **G** Xero | `xero/disconnect` | **Flask** | Proxy |
 
-**13 of 33 method+path operations are implemented here; 20 are proxied.** That split is by
-design, not by how far the work got — every proxied endpoint touches Stripe, a Xero token,
-subscription state, or a Flask-owned URL. `tests/test_routes.py` holds the authoritative
-list and fails if anything moves between the two sets without being declared.
+**14 of 31 method+path operations are implemented here; 17 are proxied** (2026-10-06). That
+split is by design, not by how far the work got — every proxied endpoint touches Stripe, a
+Xero token, subscription state, or a Flask-owned URL. `tests/test_routes.py` holds the
+authoritative list and fails if anything moves between the two sets without being declared.
 
-Every Flask onboarding path is answered here, ported or proxied, so **the wizard points at
-one base URL**. Groups D2, F and G unblock when `subscription-service` and `xero-service`
-exist.
+Every wizard path is answered here, ported or proxied, so **the wizard points at
+one base URL**. Group F still proxies to Flask; D2 and the Xero half of G unblock when
+`xero-service` exists.
 
 Paths match Flask **byte for byte** (`/api/onboarding/<name>`). That is what keeps the
 cutover a base-URL swap with no path rewriting.

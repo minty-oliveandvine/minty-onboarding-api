@@ -198,7 +198,7 @@ def test_a_proxied_endpoint_relays_a_timeout_as_504(client, auth, entity, monkey
     shape the wizard expects, with `error` (never ninja's `detail`) and Flask's status."""
     monkeypatch.setattr(requests, "request", Recorder(raises=requests.Timeout()))
     resp = client.post(
-        "/api/onboarding/finalize",
+        "/api/onboarding/modules",
         data=json.dumps({"entity_id": entity.id}),
         content_type="application/json",
         **auth,
@@ -213,7 +213,7 @@ def test_a_proxied_endpoint_relays_flasks_own_answer(client, auth, entity, monke
         requests, "request", Recorder(FakeResponse(402, {"error": "Your card was declined."}))
     )
     resp = client.post(
-        "/api/onboarding/finalize",
+        "/api/onboarding/billing/authorize",
         data=json.dumps({"entity_id": entity.id}),
         content_type="application/json",
         **auth,

@@ -42,11 +42,13 @@ PORTED = {
     # Group E -- listing is local; POST /invite is NOT (see PROXIED).
     "GET /invite",
     "POST /invite/cancel",
+    # Group G -- finalize flips the company here; its trial start is the subscription API's.
+    "POST /finalize",
 }
 
-#: Answered here, executed by Flask. Each touches a rail Flask owns -- Stripe, a Xero token,
-#: subscription state, or a Flask-owned URL -- so duplicating it would mean two writers
-#: against something that permits only one.
+#: Answered here, executed elsewhere. Each touches a rail another service owns -- Stripe and
+#: subscription state (minty-subscription-api), a Xero token or a Flask-owned URL (Flask) --
+#: so duplicating it would mean two writers against something that permits only one.
 PROXIED = {
     # Group D2 -- Xero chart of accounts, Xero contacts, minty-payment-request-api's bill codes
     "GET /account-codes",
@@ -60,7 +62,7 @@ PROXIED = {
     "POST /invite",
     # Group F -- enabling a module is a subscription write, not an entity write
     "POST /modules",
-    # Group G -- Stripe, trials, and the Xero disconnect
+    # Group G -- Stripe and billing consent (subscription API), the Xero disconnect (Flask)
     "GET /payment-method",
     "GET /billing/payment-methods",
     "POST /billing/payment-methods/setup-intent",
@@ -69,7 +71,6 @@ PROXIED = {
     "GET /billing/accounts",
     "POST /billing/accounts",
     "POST /billing/authorize",
-    "POST /finalize",
     "POST /xero/disconnect",
 }
 
@@ -117,19 +118,20 @@ def test_ported_and_proxied_do_not_overlap():
 
 
 @pytest.mark.parametrize("route", sorted(PROXIED))
-def test_every_proxied_route_goes_through_the_single_outbound_module(route):
-    """``core/minty_client.py`` is the ONLY module allowed to call Flask.
+def test_every_proxied_route_goes_through_an_outbound_module(route):
+    """``core/minty_client.py`` (Flask) and ``core/subscription_client.py`` (the subscription
+    API) are the ONLY modules allowed to call another service.
 
-    That is what makes the write rule checkable by reading one file. A handler that called
+    That is what makes the write rule checkable by reading two files. A handler that called
     ``requests`` directly would still work, and would quietly reopen the boundary -- so the
     check is on the import, not on the behaviour.
     """
     name = _operations().get(route)
     assert name, f"no handler found for {route}"
     source = importlib.import_module(name)
-    assert hasattr(source, "minty_client"), (
-        f"{name} serves a proxied route but does not import core.minty_client. "
-        "Every outbound call to Flask must go through that one module."
+    assert hasattr(source, "minty_client") or hasattr(source, "subscription_client"), (
+        f"{name} serves a proxied route but imports neither core.minty_client nor "
+        "core.subscription_client. Every outbound call must go through one of them."
     )
 
 
@@ -159,8 +161,11 @@ def test_the_whole_flask_surface_is_answered():
     20 -> 18 on 2026-10-01, deliberately: ``POST /payment-method/setup`` and ``/complete``
     opened Stripe's HOSTED Checkout, and a card is now only ever captured in-app onto a
     billing account. The wizard never called them, so no per-path exception is needed.
+
+    13/18 -> 14/17 on 2026-10-06: finalize is implemented here (the status flip), calling the
+    subscription API's ``trials/start`` for its second half.
     """
-    assert len(PORTED) == 13
-    assert len(PROXIED) == 18
+    assert len(PORTED) == 14
+    assert len(PROXIED) == 17
     assert len(EXPECTED) == 31
     assert set(_operations()) == EXPECTED

@@ -40,16 +40,21 @@ against the Flask matrix.
   internal token service for a currently-valid token (the same assertion JWT
   minty-payment-request-api uses) and returns `None` when it cannot — *inconclusive*, never "not
   connected". `connected_tenant_ids` is the one read it makes against Xero.
-- **Write to Stripe, subscriptions or `entity_function_map`.** Those endpoints proxy to
-  Flask as the caller (`core/minty_client.forward` / `proxy`: the bearer forwarded
-  verbatim, Flask's status returned unflattened — a 402 for a declined card stays a 402).
+- **Write to Stripe, subscriptions or `entity_function_map`.** Those endpoints proxy as the
+  caller — cards, billing accounts, consent and finalize's trial start to
+  minty-subscription-api (`core/subscription_client`, since 2026-10-06), `POST /modules` to
+  Flask (`core/minty_client.forward` / `proxy`): the bearer forwarded verbatim, the
+  upstream's status returned unflattened — a 402 for a declined card stays a 402. (Finalize
+  itself writes only `entities.status` here.)
 - **Send mail.** Invitations are sent by Flask; this service lists and cancels.
 
 ## Configuration
 
 `APP_ENV` (`development` turns on DEBUG; anything else refuses the placeholder `SECRET_KEY`),
-`SECRET_KEY` (shared), `PETTY_CASH_URL` (the proxies, and the token service derived from it:
-`PETTY_CASH_URL` + `/api/internal/xero/token`), `DATABASE_URL` `?schema=` → `DB_SCHEMA` (the
+`SECRET_KEY` (shared), `PETTY_CASH_URL` (the Flask proxies, and the token service derived from it:
+`PETTY_CASH_URL` + `/api/internal/xero/token`), `SUBSCRIPTION_API_URL` (minty-subscription-api;
+required outside development, default `http://localhost:8000` there — 2026-10-06),
+`DATABASE_URL` `?schema=` → `DB_SCHEMA` (the
 `search_path`), `ONBOARDING_WEB_URL` / `CORS_ALLOWED_ORIGINS` for the wizard's origin.
 
 ## Tests

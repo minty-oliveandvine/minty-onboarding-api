@@ -1,7 +1,8 @@
 # The wizard's API — `/api/onboarding/*`
 
 Everything the onboarding wizard (`../minty-onboarding-web`) calls, served here byte-for-byte on the
-same paths Minty's Flask still answers (`Minty/blueprints/entity/routes/create.py`) — the
+same paths Minty's Flask still answers (`Minty/blueprints/entity/routes/create.py`; not
+`payment-method`, `billing/*` or `finalize` since 2026-10-06) — the
 wizard's `lib/apiRoutes.ts` decides which service gets each path. Routers:
 `onboarding/api_reference.py`, `api_state.py`, `api_entity.py`, `api_pettycash.py`,
 `api_invites.py`, `api_modules.py`, `api_billing.py`; services under
@@ -57,7 +58,7 @@ are not rewritten. Invitation emails are not checked here: `POST /invite` forwar
 which refuses non-ASCII itself, and its 400 reaches the wizard unchanged (`minty_client.proxy`).
 
 The optional business email (`entities.business_email`) is not just stored (2026-09-30): the
-billing engines (Minty and `minty-subscription-api`, `notify.address_for`) send the company's trial
+billing engine (`minty-subscription-api`, `notify.address_for`; Minty's copy deleted 2026-10-06) sends the company's trial
 ending warning there, and a billing account with no billing email of its own mails its payment
 emails - and prints its invoices' Bill to - to the business email when every company on the
 account shares it. Blank means the payer's own address is used instead.
@@ -82,17 +83,35 @@ has no single-writer constraint, but the templates and the accept flow live ther
 
 ## Proxied to Flask (`api_modules.py`, `api_billing.py`, `core/minty_client.py`)
 
-`POST /modules` (the map is a projection of subscription state — Flask owns it),
-`GET /payment-method`, `billing/*` (Stripe customers, SetupIntents, cards, consent — every
-card is confirmed in-app onto a billing account; the hosted-Checkout `payment-method/setup`
-and `/complete` proxies were removed 2026-10-01),
-`POST /finalize` (flips the company live, enables the modules, starts the trials) and
+`POST /modules` (the map is a projection of subscription state — Flask owns it) and
 `POST /xero/disconnect` are forwarded as the caller with Flask's own status code.
+
+## Proxied to minty-subscription-api (`api_billing.py`, `core/subscription_client.py`)
+
+Since 2026-10-06 `GET /payment-method` and the seven `billing/*` routes (`payment-methods`
+GET, `payment-methods/setup-intent`, `payment-methods/confirm`, `payment-methods/default`,
+`accounts` GET/POST, `authorize` — Stripe customers, SetupIntents, cards, consent; every card
+is confirmed in-app onto a billing account; the hosted-Checkout `payment-method/setup` and
+`/complete` proxies were removed 2026-10-01) go to `SUBSCRIPTION_API_URL` on the same paths.
+`core/subscription_client.py` is the only module that calls that service; it reuses
+`minty_client`'s transport (`base=`): the caller's bearer forwarded verbatim, the same timeout,
+the same 502/504 answers.
+
+## Finalize (`api_billing.py`, implemented here since 2026-10-06)
+
+`POST /finalize {entity_id}` — called on arrival at All Set. Membership via
+`entity_for_member` (400/403/404). A company still `onboarding` flips to `connected` (a Xero
+org is linked) or `disconnected`; then **every** finalize calls the subscription API's
+`POST /api/onboarding/trials/start {entity_id}`, so a retry reaches it. A non-200 answer fails
+finalize with that service's own status and `error` sentence (the company stays live; the
+wizard's Try again redoes the trial start); success is `{"status": "success", "trial_end":
+iso | null}`. Both halves are idempotent. Flask's `/api/onboarding/finalize` no longer exists.
 
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,
-`test_reference.py`, `test_routes.py` (every path is registered), `test_char_schema.py`
-and `test_schema_name.py` (the schema), `test_settings_guard.py`; 371 passed + 1 skipped on
-2026-10-01 (the three dark-switch tests went with the switch) on Postgres against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
+`test_reference.py`, `test_routes.py` (every path is registered; 14 ported, 17 proxied, 31 in
+all), `test_finalize.py`, `test_char_schema.py`
+and `test_schema_name.py` (the schema), `test_settings_guard.py`; 399 passed + 1 skipped on
+2026-10-06 (SQLite and Postgres) against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
 `minty-onboarding-web/e2e` (`stack`, `resume`, `xero`, `walk`).

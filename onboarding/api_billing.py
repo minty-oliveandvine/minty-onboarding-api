@@ -1,40 +1,46 @@
-"""Group G -- money, and the one Xero call that revokes a connection. Entirely proxied.
+"""Group G -- money, finalize, and the one Xero call that revokes a connection.
 
-EVERY ENDPOINT HERE TOUCHES A RAIL FLASK OWNS:
+WHO OWNS WHAT:
 
   * ``payment-method`` and ``billing/*`` create Stripe customers, SetupIntents and payment
     methods, and record billing consent. Cards are captured in-app with Stripe Elements and
-    always land on a billing account; there is no hosted Checkout route any more. Flask's ``subscription/services/checkout.py`` is
-    ~3,200 lines of trial, proration and dunning logic treating the local tables as source of
-    truth, with no webhook receiver to reconcile a second writer. A second writer there does
-    not cause a merge conflict; it charges somebody twice.
-  * ``finalize`` flips the company to active AND starts the card-free trials. Starting a
-    trial is the moment a module legitimately becomes enabled -- the very thing Group F is
-    not allowed to do directly.
-  * ``xero/disconnect`` calls Xero's DELETE /connections and clears the local token state.
+    always land on a billing account. The one writer of Stripe and the subscription tables is
+    minty-subscription-api, so these are proxied there (``core/subscription_client.py``).
+  * ``finalize`` is implemented HERE: it flips the company live (this service's own write on
+    ``entities``, as ``/create`` is) and then asks the subscription API to start the card-free
+    trials. A failed trial start FAILS finalize -- a company must never end up live with the
+    trial it was promised silently missing -- and the All Set screen offers Try again. Both
+    halves are idempotent, so the retry is safe.
+  * ``xero/disconnect`` calls Xero's DELETE /connections and clears the local token state;
+    Flask owns the Xero token, so it is proxied there (``core/minty_client.py``).
 
-WHY PROXY RATHER THAN LET THE WIZARD CALL FLASK DIRECTLY
+WHY PROXY RATHER THAN LET THE WIZARD CALL THOSE SERVICES DIRECTLY
 
-So the frontend ends up with ONE base URL. ``lib/apiRoutes.js`` maps paths to services, and a
-path that has to bypass it is a path someone has to remember. It also means these endpoints
-move to ``subscription-service`` later by changing one line here rather than in the wizard.
+So the frontend ends up with ONE base URL. ``lib/apiRoutes.ts`` maps paths to services, and a
+path that has to bypass it is a path someone has to remember.
 
-The proxy forwards the caller's own bearer token, so Flask applies exactly the membership and
-consent checks it would have applied to a direct call. This service adds no privilege of its
-own -- there is no service credential here to scope wrongly.
+Each proxy forwards the caller's own bearer token, so the receiving service applies exactly the
+membership and consent checks it would have applied to a direct call. This service adds no
+privilege of its own -- there is no service credential here to scope wrongly.
 """
+
+import logging
 
 from ninja import Body, Router
 
-from core import minty_client
-from core.permissions import require_entity_id
+from core import minty_client, subscription_client
+from core.exceptions import UpstreamError
+from core.permissions import entity_for_member, require_entity_id
+from shared_models.enums import EntityStatus
+
+logger = logging.getLogger("minty-onboarding")
 
 billing_router = Router()
 
 
 def _get(request, path: str, entity_id: str):
     entity_id = require_entity_id(entity_id)
-    return minty_client.proxy(
+    return subscription_client.proxy(
         request, path, method="GET", params={"entity_id": entity_id}
     )
 
@@ -48,17 +54,11 @@ def get_payment_method(request, entity_id: str = ""):
 
 # --- The payer's card shelf -----------------------------------------------------------
 #
-# These are DELIBERATE DUPLICATES of the payer portal's /api/me/billing/payment-methods*,
-# sharing service code underneath. They exist only because the portal's routes hard-code
-# Access-Control-Allow-Origin to PAYMENT_REQUEST_WEB_URL, and onboarding is a different origin.
-# The wizard's own lib/billing.js carries the warning: do not "simplify" these to the
-# /api/me routes.
-#
-# Django's multi-origin CORS makes that duplication removable -- but not while these stay on
-# the Flask side, so it is a cleanup for whoever moves Group G.
+# The subscription API serves these under /api/onboarding/* beside the payer portal's
+# /api/me/billing/payment-methods*, sharing service code underneath.
 @billing_router.get("/billing/payment-methods")
 def get_billing_payment_methods(request):
-    return minty_client.proxy(
+    return subscription_client.proxy(
         request, "/api/onboarding/billing/payment-methods", method="GET"
     )
 
@@ -67,11 +67,11 @@ def get_billing_payment_methods(request):
 def post_setup_intent(request, payload: dict = Body(default={})):
     """Returns a Stripe SetupIntent AND the publishable key.
 
-    The key comes from Flask rather than from a wizard build-time env var on purpose: one service
-    owns the Stripe account, so the browser cannot end up talking to a different account than
-    the backend does.
+    The key comes from the subscription API rather than from a wizard build-time env var on
+    purpose: one service owns the Stripe account, so the browser cannot end up talking to a
+    different account than the backend does.
     """
-    return minty_client.proxy(
+    return subscription_client.proxy(
         request, "/api/onboarding/billing/payment-methods/setup-intent", json=payload
     )
 
@@ -79,7 +79,7 @@ def post_setup_intent(request, payload: dict = Body(default={})):
 @billing_router.post("/billing/payment-methods/confirm")
 def post_confirm_payment_method(request, payload: dict = Body(default={})):
     """Adopts a confirmed card: creates the Stripe customer and opens the billing account."""
-    return minty_client.proxy(
+    return subscription_client.proxy(
         request, "/api/onboarding/billing/payment-methods/confirm", json=payload
     )
 
@@ -87,36 +87,64 @@ def post_confirm_payment_method(request, payload: dict = Body(default={})):
 @billing_router.post("/billing/payment-methods/default")
 def post_default_payment_method(request, payload: dict = Body(default={})):
     """Kept for completeness; the wizard deliberately no longer calls it."""
-    return minty_client.proxy(
+    return subscription_client.proxy(
         request, "/api/onboarding/billing/payment-methods/default", json=payload
     )
 
 
 @billing_router.get("/billing/accounts")
 def get_billing_accounts(request):
-    return minty_client.proxy(request, "/api/onboarding/billing/accounts", method="GET")
+    return subscription_client.proxy(request, "/api/onboarding/billing/accounts", method="GET")
 
 
 @billing_router.post("/billing/accounts")
 def post_billing_accounts(request, payload: dict = Body(default={})):
-    return minty_client.proxy(request, "/api/onboarding/billing/accounts", json=payload)
+    return subscription_client.proxy(request, "/api/onboarding/billing/accounts", json=payload)
 
 
 @billing_router.post("/billing/authorize")
 def post_billing_authorize(request, payload: dict = Body(default={})):
     """Records per-entity billing consent -- who agreed that this card pays for this company."""
-    return minty_client.proxy(request, "/api/onboarding/billing/authorize", json=payload)
+    return subscription_client.proxy(request, "/api/onboarding/billing/authorize", json=payload)
 
 
 # --- Finishing, and disconnecting -----------------------------------------------------
 @billing_router.post("/finalize")
 def post_finalize(request, payload: dict = Body(default={})):
-    """Flips the company to active and starts the card-free trials.
+    """Body ``{entity_id}`` -> ``{"status": "success", "trial_end": iso8601 | null}``.
 
-    The trial start is what legitimately enables a module -- so this is the endpoint Group F
-    defers to, not merely another Stripe call.
+    Called on ARRIVAL at the All Set step. Two halves, both idempotent:
+
+    1. A company still ``onboarding`` goes live: ``connected`` when a Xero org is linked,
+       else ``disconnected`` (``entity_status`` has no ``active``). Already live -> untouched.
+    2. ``POST /api/onboarding/trials/start`` on the subscription API starts the card-free
+       trials for the modules the wizard enabled and reads ``trial_end`` back from the rows.
+       Called on every finalize, not only the first: a retry after a failed start must reach
+       it, and modules that already hold a trial are skipped there.
+
+    A failed trial start FAILS finalize with the subscription API's own status and sentence.
+    The company stays live (half 1 is not undone) and Try again redoes half 2.
     """
-    return minty_client.proxy(request, "/api/onboarding/finalize", json=payload)
+    entity = entity_for_member(request.auth_user_id, (payload or {}).get("entity_id"))
+
+    if entity.status == EntityStatus.ONBOARDING:
+        entity.status = (
+            EntityStatus.CONNECTED if entity.xero_org_id else EntityStatus.DISCONNECTED
+        )
+        entity.save(update_fields=["status"])
+        logger.info("onboarding: entity %s finalized (%s)", entity.id, entity.status)
+
+    answer, status = subscription_client.forward(
+        request, "/api/onboarding/trials/start", json={"entity_id": str(entity.id)}
+    )
+    if status != 200:
+        message = answer.get("error") if isinstance(answer, dict) else None
+        logger.error(
+            "onboarding: finalize of entity %s failed to start trials (%s)", entity.id, status
+        )
+        raise UpstreamError(message or minty_client.UNREACHABLE, status=status)
+
+    return {"status": "success", "trial_end": answer.get("trial_end")}
 
 
 @billing_router.post("/xero/disconnect")

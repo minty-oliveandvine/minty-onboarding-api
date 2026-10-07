@@ -1,0 +1,20 @@
+# ruff, pytest on SQLite, then pytest again on a Postgres built from Minty's
+# docs/schema/01_schema_rebased.sql. The workflow body is shared:
+# minty-oliveandvine/.github -> .github/workflows/python-api.yml
+#
+# Browser tests live in minty-onboarding-web and need the whole stack.
+name: ci
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+jobs:
+  check:
+    uses: minty-oliveandvine/.github/.github/workflows/python-api.yml@v1
+    with:
+      python-version: "3.11"
+      schema-name-test: tests/test_schema_name.py
+    secrets:
+      MINTY_READ_TOKEN: ${{ secrets.MINTY_READ_TOKEN }}

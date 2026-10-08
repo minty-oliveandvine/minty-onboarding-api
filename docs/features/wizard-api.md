@@ -107,6 +107,12 @@ finalize with that service's own status and `error` sentence (the company stays 
 wizard's Try again redoes the trial start); success is `{"status": "success", "trial_end":
 iso | null}`. Both halves are idempotent. Flask's `/api/onboarding/finalize` no longer exists.
 
+The trials it starts have **no subscriber** (2026-10-08): `trials/start` establishes no
+payer, because a free trial commits nobody. The wizard's door onto the billing relationship
+is the proxied `POST /billing/authorize` on step 2, and it may be skipped - nothing here
+changes, but a company that skipped it goes live with trials that expire rather than convert
+until an admin confirms billing in minty-web.
+
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,

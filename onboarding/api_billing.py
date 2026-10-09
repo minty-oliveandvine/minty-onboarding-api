@@ -151,3 +151,15 @@ def post_finalize(request, payload: dict = Body(default={})):
 def post_xero_disconnect(request, payload: dict = Body(default={})):
     """Revokes the Xero connection at Xero and clears the local token state."""
     return minty_client.proxy(request, "/api/onboarding/xero/disconnect", json=payload)
+
+
+@billing_router.post("/xero/release")
+def post_xero_release(request, payload: dict = Body(default={})):
+    """Frees the Xero organisation held by ANOTHER company, so this one can connect it.
+
+    The wizard's half of the move offered when a connect is refused ("one organisation, one
+    company"). ``entity_id`` in the body is the company being FREED, never the one being
+    onboarded; Flask authorizes it on that company and leaves it ``disconnected``. Proxied for
+    the same reason as ``xero/disconnect``: Flask owns the Xero token.
+    """
+    return minty_client.proxy(request, "/api/onboarding/xero/release", json=payload)

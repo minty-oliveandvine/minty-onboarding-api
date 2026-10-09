@@ -19,6 +19,7 @@ WHAT GOES THROUGH HERE (to Flask)
 
   * Group F  POST /api/onboarding/modules            (module grant)
   * Group G  POST /api/onboarding/xero/disconnect    (needs a Xero token)
+  * Group G  POST /api/onboarding/xero/release       (frees another company's org)
   * Group D  the Xero chart of accounts and contacts
   * Group E  POST /api/onboarding/invite             (the email links into Flask)
 

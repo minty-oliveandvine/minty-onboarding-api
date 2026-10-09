@@ -72,6 +72,7 @@ PROXIED = {
     "POST /billing/accounts",
     "POST /billing/authorize",
     "POST /xero/disconnect",
+    "POST /xero/release",
 }
 
 EXPECTED = PORTED | PROXIED
@@ -164,8 +165,14 @@ def test_the_whole_flask_surface_is_answered():
 
     13/18 -> 14/17 on 2026-10-06: finalize is implemented here (the status flip), calling the
     subscription API's ``trials/start`` for its second half.
+
+    31 -> 32 on 2026-10-09: ``POST /xero/release`` joins the surface, proxied beside
+    ``xero/disconnect`` (Flask owns the Xero token). It frees the organisation another
+    company holds, for the move offered when a connect is refused. The wizard reached for it
+    before this proxy existed and got a 404 that it showed as "I couldn't disconnect that
+    company from Xero" -- which is exactly the per-path gap this test exists to catch.
     """
     assert len(PORTED) == 14
-    assert len(PROXIED) == 17
-    assert len(EXPECTED) == 31
+    assert len(PROXIED) == 18
+    assert len(EXPECTED) == 32
     assert set(_operations()) == EXPECTED

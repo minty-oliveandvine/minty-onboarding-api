@@ -254,7 +254,7 @@ def test_another_companys_custom_method_is_not_a_default(client, auth, modules, 
     """The catalogue is global, but a new company starts with the DEFAULT set only."""
     SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Someone's Method", type="electronic", enabled=True)
     new_id = post_create(client, auth, entity_name="Other Co").json()["entity_id"]
-    names = {l.sale.sale_name for l in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")}
+    names = {s.sale.sale_name for s in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")}
     assert "Someone's Method" not in names
     assert names == {"Cash"}
 

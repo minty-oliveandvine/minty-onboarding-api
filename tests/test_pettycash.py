@@ -10,7 +10,7 @@ not, and either half getting lost is a silent data bug rather than an error.
 """
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 import pytest
 

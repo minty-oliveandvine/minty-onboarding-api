@@ -48,8 +48,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
-from core.exceptions import (AccessDeniedError, ConflictError,
-                             OnboardingValidationError)
+from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
 from shared_models.models import Report
 

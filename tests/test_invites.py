@@ -6,7 +6,7 @@ hold USER_INVITE on the entity AND outrank the invitation you are cancelling.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,7 +26,7 @@ def make_invite(entity, *, email="new@example.com", role="cashier", status="pend
         role=role,
         token=str(uuid.uuid4()),
         status=status,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         **kw,
     )
 

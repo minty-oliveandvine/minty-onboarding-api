@@ -15,8 +15,7 @@ import uuid
 
 import pytest
 
-from shared_models.models import (Entity, EntityFunctionMap, EntitySaleSetting,
-                                  SaleInfo, UserEntity)
+from shared_models.models import Entity, EntityFunctionMap, EntitySaleSetting, SaleInfo, UserEntity
 from tests.conftest import make_token
 
 CREATE = "/api/onboarding/create"

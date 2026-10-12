@@ -30,7 +30,7 @@ no change to serve this service.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import requests
@@ -65,7 +65,7 @@ def access_token_for(entity_id: str) -> str | None:
         logger.error("xero: token service URL or SECRET_KEY unset; cannot get a token")
         return None
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     assertion = jwt.encode(
         {
             "scope": TOKEN_SERVICE_SCOPE,

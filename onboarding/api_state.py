@@ -26,7 +26,6 @@ from pydantic import Field
 
 from core.exceptions import OnboardingValidationError
 from core.permissions import entity_for_member
-
 from onboarding.services import state as state_service
 from onboarding.services import steps as step_defs
 

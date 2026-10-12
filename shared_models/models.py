@@ -77,8 +77,17 @@ See ``onboarding/api_reference.py`` and ``services/state.py`` for the call sites
 from django.db import models
 from django.db.models.functions import Now
 
-from shared_models.enums import (DiscrepancyType, EntityRole, EntityStatus, InvitationStatus, ModuleCode,
-                                 PublishStatus, ReportStatus, SaleType, SystemRole)
+from shared_models.enums import (
+    DiscrepancyType,
+    EntityRole,
+    EntityStatus,
+    InvitationStatus,
+    ModuleCode,
+    PublishStatus,
+    ReportStatus,
+    SaleType,
+    SystemRole,
+)
 from shared_models.fields import CharNField, PgEnumField
 
 

@@ -28,14 +28,12 @@ import logging
 
 from ninja import Body, Router, Schema, Status
 
-from core.exceptions import (AccessDeniedError, ConflictError,
-                             OnboardingValidationError)
+from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
 from core.permissions import entity_for_member, require_entity_id
 from core.policy import Permission, has_permission_by_user_id
-from shared_models.models import CountryInfo, CurrencyInfo, Entity
-
 from onboarding.services import resolve
 from onboarding.services.entity_create import create_entity_for_user
+from shared_models.models import CountryInfo, CurrencyInfo, Entity
 
 logger = logging.getLogger("minty-onboarding")
 

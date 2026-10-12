@@ -27,8 +27,16 @@ import pytest
 
 from core import xero_tokens
 from onboarding.services import steps as step_defs
-from shared_models.models import (AccountInfo, Entity, EntityFunctionMap, EntityPettycashSettings,
-                                  EntitySaleSetting, Invitation, Report, UserEntity)
+from shared_models.models import (
+    AccountInfo,
+    Entity,
+    EntityFunctionMap,
+    EntityPettycashSettings,
+    EntitySaleSetting,
+    Invitation,
+    Report,
+    UserEntity,
+)
 
 pytestmark = pytest.mark.django_db
 

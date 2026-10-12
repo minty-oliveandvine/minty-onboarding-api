@@ -33,8 +33,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from shared_models.models import User, UserEntity
 from shared_models.enums import SystemRole
+from shared_models.models import User, UserEntity
 
 # ---------------------------------------------------------------------------
 # Vocabulary

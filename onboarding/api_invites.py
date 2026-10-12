@@ -16,9 +16,7 @@ from ninja import Body, Router, Schema
 
 from core import minty_client
 from core.permissions import entity_for_member
-
 from onboarding.services import invites as invites_service
-
 
 invites_router = Router()
 

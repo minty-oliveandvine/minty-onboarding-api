@@ -40,13 +40,17 @@ would assert a shared ordering that the frontend correctly refuses to share.
 import logging
 
 from core import xero_tokens
-from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
-                                  EntityPettycashSettings, Report)
-
 from onboarding.services import invites as invites_service
 from onboarding.services import sales_methods
 from onboarding.services import steps as step_defs
 from onboarding.services.plans import MODULE_BILL, MODULE_CODES, MODULE_PETTY_CASH
+from shared_models.models import (
+    Entity,
+    EntityFunction,
+    EntityFunctionMap,
+    EntityPettycashSettings,
+    Report,
+)
 
 logger = logging.getLogger("minty-onboarding")
 

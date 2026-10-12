@@ -9,15 +9,21 @@ would reveal it.
 """
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from core import xero_tokens
 from onboarding.services import state as state_service
 from onboarding.services import steps as step_defs
-from shared_models.models import (EntityPettycashSettings, EntitySaleSetting, SaleInfo,
-                                  Invitation, Report, UserEntity)
+from shared_models.models import (
+    EntityPettycashSettings,
+    EntitySaleSetting,
+    Invitation,
+    Report,
+    SaleInfo,
+    UserEntity,
+)
 from tests.conftest import make_token
 
 STATE = "/api/onboarding/state"
@@ -506,7 +512,7 @@ def test_pending_invites_are_listed_for_a_super_admin(client, auth, entity, modu
         id=str(uuid.uuid4()), entity_id=entity.id, email="new@example.com",
         role="cashier", token=str(uuid.uuid4()), status="pending",
         first_name="New", last_name="Hire",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     invites = state_of(client, auth, entity)["invites"]
     assert [i["email"] for i in invites] == ["new@example.com"]
@@ -519,7 +525,7 @@ def test_non_pending_invites_are_excluded(client, auth, entity, modules):
         Invitation.objects.create(
             id=str(uuid.uuid4()), entity_id=entity.id, email=f"{status}@example.com",
             role="cashier", token=str(uuid.uuid4()), status=status,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
     assert state_of(client, auth, entity)["invites"] == []
 
@@ -538,7 +544,7 @@ def test_a_cashier_gets_an_empty_invite_list_not_a_403(client, user, entity, mod
     Invitation.objects.create(
         id=str(uuid.uuid4()), entity_id=entity.id, email="hidden@example.com",
         role="cashier", token=str(uuid.uuid4()), status="pending",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     resp = client.get(
         STATE,

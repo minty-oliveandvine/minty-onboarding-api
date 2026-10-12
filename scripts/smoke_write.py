@@ -40,9 +40,15 @@ from onboarding.services import opening_balance as opening_service  # noqa: E402
 from onboarding.services import resolve  # noqa: E402
 from onboarding.services import sales_methods as sales_service  # noqa: E402
 from onboarding.services.entity_create import create_entity_for_user  # noqa: E402
-from shared_models.models import (CountryInfo, CurrencyInfo,  # noqa: E402
-                                  EntityFunctionMap, EntitySaleSetting, Report,
-                                  User, UserEntity)
+from shared_models.models import (  # noqa: E402
+    CountryInfo,
+    CurrencyInfo,
+    EntityFunctionMap,
+    EntitySaleSetting,
+    Report,
+    User,
+    UserEntity,
+)
 
 PASS = "  PASS  "
 FAIL = "  FAIL  "

@@ -16,16 +16,24 @@ compares them. Both are needed; neither substitutes for the other.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
 from django.conf import settings
 from django.test import Client
 
-from shared_models.models import (BillingPlan, BillingPolicy, CountryInfo,
-                                  CurrencyInfo, Entity, EntityFunction,
-                                  EntityFunctionMap, User, UserEntity)
+from shared_models.models import (
+    BillingPlan,
+    BillingPolicy,
+    CountryInfo,
+    CurrencyInfo,
+    Entity,
+    EntityFunction,
+    EntityFunctionMap,
+    User,
+    UserEntity,
+)
 
 
 def make_token(user_id, *, scope="onboarding", minutes=60, key=None):
@@ -38,8 +46,8 @@ def make_token(user_id, *, scope="onboarding", minutes=60, key=None):
         {
             "user_id": str(user_id),
             "scope": scope,
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=minutes),
-            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(UTC) + timedelta(minutes=minutes),
+            "iat": datetime.now(UTC),
         },
         key or settings.SECRET_KEY,
         algorithm="HS256",
@@ -193,7 +201,7 @@ def enable_module(db, modules):
         # so the fixture sets them. Leaving them out passed until the mirror declared them,
         # which is the whole hazard of a partial mirror: the test database is built FROM the
         # models, so it only enforces what the models happen to say.
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return EntityFunctionMap.objects.create(
             entity_id=entity.id,
             entity_function_id=modules[code].id,

@@ -114,8 +114,8 @@ def validation_message(errors):
     joined = _join(names)
     if all(str(e.get("type", "")).startswith("missing")
            for e in errors if isinstance(e, dict)):
-        return "I still need {} to continue.".format(joined)
-    return "Mind checking {}? That didn't look quite right.".format(joined)
+        return f"I still need {joined} to continue."
+    return f"Mind checking {joined}? That didn't look quite right."
 
 
 def register_exception_handlers(api):

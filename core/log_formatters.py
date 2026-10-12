@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class CoreFormatter(logging.Formatter):
@@ -9,7 +9,7 @@ class CoreFormatter(logging.Formatter):
     """
 
     def format(self, record):
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
         return f"{ts} {record.levelname} {record.name} {record.getMessage()}"
@@ -23,7 +23,7 @@ class ApiFormatter(logging.Formatter):
     """
 
     def format(self, record):
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
         base = f"{ts} {record.levelname} {record.name}"

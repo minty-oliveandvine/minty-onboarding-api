@@ -1,0 +1,35 @@
+# The rule set is minty-subscription-api's (pyproject.toml [tool.ruff]), the one Django service
+# that was set up with one. This repo had NO ruff configuration at all, which went unnoticed
+# because its CI had never run: with no config, `ruff check .` applies whatever the newest ruff
+# defaults to, and requirements.txt says `ruff>=0.3`, so the rule set could widen on any CI run
+# without a commit here. That is how a first green run turned into 89 findings.
+#
+# A ruff.toml rather than a pyproject.toml: this repo is a Django service, not an installable
+# package, and a pyproject.toml holding only [tool.ruff] invites a build backend to try.
+line-length = 100
+target-version = "py311"
+
+# Minty is checked out INTO this workspace by the shared CI workflow (python-api.yml checks it
+# out at ./Minty for tests/pg_harness.py and docs/schema/01_schema_rebased.sql), so `ruff check .`
+# would otherwise lint another repo's file under this repo's rules.
+exclude = [".venv", "logs", "Minty"]
+
+# DEFERRED, not dropped: "B" (flake8-bugbear) is in minty-subscription-api's select and is left
+# out here for now. It reports 18 problems in this repo - mostly B904 (`raise ... from`) and B008
+# (a call in an argument default, which is the django-ninja idiom), both judgement calls rather
+# than mechanical fixes. This is a hole to close, not a setting: add "B" back and work through
+# them, the way minty-subscription-api did with per-file-ignores while its port was proven.
+
+[lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+  # long docstrings and comments are the house style (see the other two Django services)
+  "E501",
+  # core/policy.py is a verbatim port (str, Enum) shared with the other two Django
+  # services; StrEnum would be a behaviour change to review. Same ignore, same reason,
+  # as minty-subscription-api.
+  "UP042",
+]
+
+[lint.isort]
+known-first-party = ["config", "core", "onboarding", "scripts", "shared_models"]

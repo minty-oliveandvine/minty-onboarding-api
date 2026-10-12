@@ -35,12 +35,12 @@ api = NinjaAPI(
 
 register_exception_handlers(api)
 
-from onboarding.api_reference import plans_router, public_router  # noqa: E402
-from onboarding.api_entity import entity_router  # noqa: E402
 from onboarding.api_billing import billing_router  # noqa: E402
+from onboarding.api_entity import entity_router  # noqa: E402
 from onboarding.api_invites import invites_router  # noqa: E402
 from onboarding.api_modules import modules_router  # noqa: E402
 from onboarding.api_pettycash import pettycash_router  # noqa: E402
+from onboarding.api_reference import plans_router, public_router  # noqa: E402
 from onboarding.api_state import state_router  # noqa: E402
 
 # Group A -- reference data. Mounted at the root of the prefix so paths stay flat,

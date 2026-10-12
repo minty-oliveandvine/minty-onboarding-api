@@ -44,19 +44,25 @@ enforced by the code rather than remembered by a reader.
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from django.db import transaction
 
 from core.exceptions import ConflictError, OnboardingValidationError
-from shared_models.models import (Entity, EntityFunction, EntityFunctionMap,
-                                  EntitySaleSetting, SaleInfo, UserEntity)
 
 # Imported rather than redeclared: two lists each calling themselves canonical is exactly
 # how they drift apart. services/plans.py owns the module codes; state.py imports them from
 # there too, so this is now the single definition.
 from onboarding.services.plans import MODULE_CODES
 from shared_models.enums import SaleType
+from shared_models.models import (
+    Entity,
+    EntityFunction,
+    EntityFunctionMap,
+    EntitySaleSetting,
+    SaleInfo,
+    UserEntity,
+)
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -157,7 +163,7 @@ def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
         ).values_list("entity_function_id", flat=True)
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = [
         EntityFunctionMap(
             entity_id=entity_id,

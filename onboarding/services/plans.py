@@ -34,10 +34,9 @@ catalog cannot invent a free module.
 
 import logging
 
-from shared_models.models import BillingPlan, BillingPolicy, EntityFunction
-
 from onboarding.services import money
 from shared_models.enums import ModuleCode
+from shared_models.models import BillingPlan, BillingPolicy, EntityFunction
 
 logger = logging.getLogger("minty-onboarding")
 

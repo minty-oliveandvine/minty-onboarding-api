@@ -8,6 +8,7 @@ rather than a port of it.
 """
 
 import uuid
+from datetime import UTC
 
 import pytest
 
@@ -145,12 +146,12 @@ def test_public_endpoints_ignore_a_bad_token(client, countries):
 
 
 def _token_stamped_at(user, offset):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     import jwt
     from django.conf import settings
 
-    at = datetime.now(timezone.utc) + offset
+    at = datetime.now(UTC) + offset
     return jwt.encode(
         {"user_id": str(user.id), "scope": "onboarding", "iat": at, "exp": at + timedelta(minutes=60)},
         settings.SECRET_KEY,

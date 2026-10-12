@@ -41,7 +41,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import django
 
@@ -89,8 +89,8 @@ def mint(user_id) -> str:
         {
             "user_id": str(user_id),
             "scope": "onboarding",
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
-            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(UTC) + timedelta(minutes=60),
+            "iat": datetime.now(UTC),
         },
         settings.SECRET_KEY,
         algorithm="HS256",

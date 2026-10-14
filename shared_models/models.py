@@ -298,9 +298,7 @@ class CashInfo(models.Model):
 
     id = models.UUIDField(primary_key=True)
     currency_id = models.UUIDField()
-    # NOT NULL, and part of the unique key (currency_id, cash_value, type): HKD's $10 note
-    # and $10 coin are two rows.
-    type = PgEnumField("cash_type", choices=CashType.choices)
+    type = PgEnumField("cash_type", choices=CashType.choices, null=True, blank=True)
     cash_value = models.DecimalField(max_digits=12, decimal_places=2)
     cash_name = models.CharField(max_length=20, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
@@ -501,8 +499,8 @@ class EntityPettycashSettings(models.Model):
     ``entity_id`` is the primary key -- one row per entity, not an id column. The account
     and contact columns are FKs to the company's synced ``account_info`` /
     ``xero_contact_sync`` rows (uuids). Flask writes them (steps 6 and 7 are proxied there);
-    this service writes only ``opening_balance`` and ``start_date`` (step 5). Whether Step 6
-    is done is read from ``EntitySetupSummary.pettycash_account_id``.
+    this service writes only ``opening_balance`` and ``start_date`` (step 5). Step 6 is done
+    once ``pettycash_account_id`` is set.
     """
 
     entity_id = models.UUIDField(primary_key=True)
@@ -549,10 +547,8 @@ class EntitySetupSummary(models.Model):
     pettycash_contacts_set = models.IntegerField()
     pettycash_contacts_total = models.IntegerField()
     bill_accounts_set = models.BigIntegerField()  # count(*)
-    bill_accounts_default_inactive = models.BigIntegerField()  # count(*)
     opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True)
     start_date = models.DateField(null=True)
-    pettycash_account_id = models.UUIDField(null=True)
 
     class Meta:
         managed = False
@@ -560,6 +556,27 @@ class EntitySetupSummary(models.Model):
 
     def __str__(self):
         return f"setup of {self.entity_id}"
+
+
+class EntityBillAccountXero(models.Model):
+    """A company's Payment Request account codes (``entity_bill_account_xero``), written by
+    payment-request-api. Finalize reads only whether a default code is unticked; only those
+    columns are mapped.
+    """
+
+    id = models.UUIDField(primary_key=True)
+    entity_id = models.UUIDField()
+    account_code = models.CharField(max_length=150)
+    is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        managed = False
+        db_table = "entity_bill_account_xero"
+
+    def __str__(self):
+        return f"bill account {self.account_code} for {self.entity_id}"
 
 
 class EntitySaleSetting(models.Model):

@@ -37,6 +37,7 @@ class SharedModelsConfig(AppConfig):
             models.BillingPolicy,
             models.AccountInfo,
             models.EntityPettycashSettings,
+            models.EntityBillAccountXero,
             models.EntitySaleSetting,
             models.Report,
             models.Invitation,

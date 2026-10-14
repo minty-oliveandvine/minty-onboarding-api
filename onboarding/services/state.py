@@ -44,7 +44,7 @@ from onboarding.services import invites as invites_service
 from onboarding.services import sales_methods
 from onboarding.services import steps as step_defs
 from onboarding.services.plans import MODULE_BILL, MODULE_CODES, MODULE_PETTY_CASH
-from shared_models.models import Entity, EntitySetupSummary
+from shared_models.models import Entity, EntityPettycashSettings, EntitySetupSummary
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -115,10 +115,12 @@ def _xero_state(setup) -> dict:
     }
 
 
-def _account_codes_done(setup) -> bool:
+def _account_codes_done(entity_id) -> bool:
     """True once the petty-cash account-code mapping has been saved (Step 6): the core
-    ``pettycash_account_id`` is set."""
-    return bool(setup and setup.pettycash_account_id)
+    ``pettycash_account_id`` is set on ``entity_pettycash_settings``."""
+    return EntityPettycashSettings.objects.filter(
+        entity_id=entity_id, pettycash_account_id__isnull=False
+    ).exists()
 
 
 def _sales_methods_state(entity_id: str) -> dict:
@@ -201,7 +203,7 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
     setup = setup_summary(entity.id)
     modules = enabled_modules(setup)
     xero = _xero_state(setup)
-    account_codes_done = _account_codes_done(setup)
+    account_codes_done = _account_codes_done(entity.id)
     current_step = derive_current_step(entity, modules, xero, account_codes_done)
 
     return {

@@ -22,9 +22,11 @@ Stripe** (`services/plans.py`).
 ## Resume: `/state` and `/saved-step` (`services/state.py`, `steps.py`)
 
 **The `entities` row is the source of truth, not the browser.** `GET /state?entity_id=`
-rebuilds the whole picture from the database — modules, Xero, the Step 6 flag and the
-opening balance from ONE `entity_setup_summary` row (a Postgres view, so the tests that read
-`/state` run in the Postgres pass only; the live Xero revoke check runs first) — entity, name, country, currency, phone,
+rebuilds the whole picture from the database — modules, Xero and the opening balance from ONE
+`entity_setup_summary` row (a Postgres view, so the tests that read `/state` run in the
+Postgres pass only; the live Xero revoke check runs first), and the Step 6 flag from
+`entity_pettycash_settings.pettycash_account_id` (the view has no such column; c5a05 added
+one and was withdrawn 2026-10-14) — entity, name, country, currency, phone,
 email, status, `modules`, `xero` (connected? tenant), `sales_methods`, `opening_balance`,
 `invites` (best-effort: a cashier who may not list invitations still gets a state),
 `saved_step`, `current_step`, `max_reached` — so a cold resume
@@ -127,7 +129,8 @@ the same 502/504 answers.
 `entity_for_member` (400/403/404). First the setup rule (`setup_gaps`, from
 `entity_setup_summary`, only when a module is on): Petty Cash needs Xero plus all six accounts
 and three contacts; Payment Request needs Xero plus at least one ticked bill account code, and
-a default code (if set) that is ticked. Anything missing is a 409 `{"error", "missing": [{"step",
+a default code (if set) that is ticked - that one read from `entity_bill_account_xero`
+(`EntityBillAccountXero`), since the view has no column for it. Anything missing is a 409 `{"error", "missing": [{"step",
 "message"}]}` and the company stays `onboarding` - All Set lists each with a way back to its
 step. Then a company still `onboarding` flips to `connected` (a Xero
 org is linked) or `disconnected`; then **every** finalize calls the subscription API's

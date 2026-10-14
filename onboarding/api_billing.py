@@ -33,7 +33,7 @@ from core.exceptions import UpstreamError
 from core.permissions import entity_for_member, require_entity_id
 from onboarding.services import state as state_service
 from shared_models.enums import EntityStatus
-from shared_models.models import EntityFunctionMap
+from shared_models.models import EntityBillAccountXero, EntityFunctionMap
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -117,8 +117,9 @@ def setup_gaps(entity) -> list[dict]:
 
     Petty Cash needs Xero plus the six accounts and three contacts publishing posts with;
     Payment Request needs Xero plus at least one ticked bill account code, and a default code
-    (if one is set) that is ticked. Read from ``entity_setup_summary`` (a Postgres view), and
-    only when a module is on - a company with none has nothing to check.
+    (if one is set) that is ticked. Read from ``entity_setup_summary`` (a Postgres view) and,
+    for the default code, ``entity_bill_account_xero``; only when a module is on - a company
+    with none has nothing to check.
     """
     if not EntityFunctionMap.objects.filter(entity_id=entity.id, is_enabled=True).exists():
         return []
@@ -140,7 +141,9 @@ def setup_gaps(entity) -> list[dict]:
             f"({setup.pettycash_contacts_set} of {setup.pettycash_contacts_total} set).")})
     if bills and setup.bill_accounts_set < 1:
         gaps.append({"step": 8, "message": "Tick at least one payment request account code."})
-    if bills and setup.bill_accounts_default_inactive:
+    if bills and EntityBillAccountXero.objects.filter(
+        entity_id=entity.id, is_default=True, is_active=False, is_deleted=False
+    ).exists():
         gaps.append({"step": 8, "message": "Make the default account code one of the ticked codes."})
     return gaps
 

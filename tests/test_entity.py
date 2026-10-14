@@ -6,8 +6,8 @@ rule on the update path.
 
 WHAT THESE CANNOT PROVE: that the writes actually land on Postgres. SQLite builds its tables
 from the models, so a mirror missing a NOT NULL column passes here and fails in production --
-which is exactly what happened with ``entity_function_map``. ``scripts/smoke_write.py``
-covers that and is not optional.
+which is exactly what happened with ``entity_function_map``. The suite's Postgres run
+(``MINTY_TEST_PG_URI``) covers that and is not optional.
 """
 
 import os
@@ -15,8 +15,15 @@ import uuid
 
 import pytest
 
-from shared_models.models import Entity, EntityFunctionMap, EntitySaleSetting, SaleInfo, UserEntity
-from tests.conftest import make_token
+from shared_models.models import (
+    Entity,
+    EntityCashSetting,
+    EntityFunctionMap,
+    EntitySaleSetting,
+    SaleInfo,
+    UserEntity,
+)
+from tests.conftest import make_token, requires_postgres
 
 CREATE = "/api/onboarding/create"
 
@@ -145,16 +152,16 @@ def test_idempotency_is_scoped_to_the_caller(client, auth, other_user, modules):
 
 
 @pytest.mark.django_db
-def test_reuse_keeps_contact_details_the_wizard_did_not_resend(client, auth, modules):
+def test_reuse_keeps_contact_details_the_wizard_did_not_resend(client, auth, modules, countries):
     """A resumed wizard that omits the phone must not blank a stored one.
 
     The user typed it on a previous visit; an omitted key is not an instruction to delete.
     """
     entity_id = post_create(
-        client, auth, entity_name="Keep Co", contact_phone="12345678"
+        client, auth, entity_name="Keep Co", contact_phone="+85291234567"
     ).json()["entity_id"]
     post_create(client, auth, entity_name="Keep Co")
-    assert Entity.objects.get(id=entity_id).contact_phone == "12345678"
+    assert Entity.objects.get(id=entity_id).contact_phone == "+85291234567"
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +235,7 @@ def test_a_new_company_is_linked_to_cash_only(client, auth, modules):
     assert cash.is_active
 
 
+@requires_postgres  # reads /state (a Postgres view)
 @pytest.mark.django_db
 def test_a_new_company_shows_no_sales_methods_in_state(client, auth, modules):
     """The wizard's electronic and delivery lists come from /state; both start empty."""
@@ -331,9 +339,15 @@ def test_a_malformed_uuid_is_a_400_and_not_a_crash(client, auth, currencies, mod
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "phone,expected",
-    [("12345678", "12345678"), ("+852 1234 5678", "85212345678"), ("", None)],
+    [
+        ("+85291234567", "+85291234567"),
+        ("+852 9123-4567", "+85291234567"),  # the punctuation people type is dropped
+        ("+61 (02) 9876 5432", "+61298765432"),  # the domestic trunk 0 is not part of E.164
+        ("+61 4123", "+614123"),  # no fixed length for +61: E.164's floor of 4 digits
+        ("", None),
+    ],
 )
-def test_phone_is_stored_digits_only(client, auth, modules, phone, expected):
+def test_phone_is_stored_as_e164(client, auth, modules, countries, phone, expected):
     entity_id = post_create(
         client, auth, entity_name=f"Phone Co {phone or 'blank'}", contact_phone=phone
     ).json()["entity_id"]
@@ -341,12 +355,23 @@ def test_phone_is_stored_digits_only(client, auth, modules, phone, expected):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("phone", ["1234567", "123456789012"])
-def test_phone_length_is_enforced_server_side(client, auth, modules, phone):
-    """The wizard's maxLength is a convenience, not a control -- this is plain JSON."""
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "91234567",  # no dial code: the old digits-only shape is no longer accepted
+        "+852 9123 456",  # Hong Kong numbers are exactly 8 digits
+        "+852 9123 45678",
+        "+61 412",  # under E.164's 4-digit floor
+        "+61 4123 4567 8901 23",  # 16 digits in all, over E.164's 15
+        "+93 7012 3456",  # Afghanistan has no phone_code in the registry
+        "+852 9123 4567 ext 2",  # letters
+    ],
+)
+def test_phone_is_checked_server_side(client, auth, modules, countries, phone):
+    """The wizard's check is a convenience, not a control -- this is plain JSON."""
     resp = post_create(client, auth, entity_name="Len Co", contact_phone=phone)
     assert resp.status_code == 400
-    assert resp.json() == {"error": "Phone number must be 8-11 digits."}
+    assert resp.json() == {"error": "Please check the phone number and its country code."}
 
 
 @pytest.mark.django_db
@@ -524,6 +549,83 @@ def test_create_does_not_set_currency_format(client, auth, currencies, modules):
 
 
 # ---------------------------------------------------------------------------
+# Cash denominations follow the currency
+# ---------------------------------------------------------------------------
+def cash_ids(entity_id):
+    return {str(c) for c in EntityCashSetting.objects.filter(entity_id=entity_id)
+            .values_list("cash_id", flat=True)}
+
+
+def ids(rows):
+    return {str(r.id) for r in rows}
+
+
+@pytest.mark.django_db
+def test_create_copies_the_currency_s_active_denominations(
+    client, auth, currencies, cash_catalogue, modules
+):
+    entity_id = post_create(
+        client, auth, entity_name="Cash Co", currency_id="HKD"
+    ).json()["entity_id"]
+    assert cash_ids(entity_id) == ids(cash_catalogue["HKD"])  # the retired $1000 is left out
+    rows = EntityCashSetting.objects.filter(entity_id=entity_id)
+    assert all(r.is_active for r in rows)
+    orders = {str(r.cash_id): r.display_order for r in rows}
+    assert orders == {str(c.id): c.display_order for c in cash_catalogue["HKD"]}
+
+
+@pytest.mark.django_db
+def test_create_without_a_currency_writes_no_denominations(client, auth, cash_catalogue, modules):
+    entity_id = post_create(client, auth, entity_name="No Cur Co").json()["entity_id"]
+    assert cash_ids(entity_id) == set()
+
+
+@pytest.mark.django_db
+def test_changing_the_currency_swaps_the_denominations(
+    client, auth, entity, currencies, cash_catalogue, modules
+):
+    assert put_entity(client, auth, entity.id, currency_id="HKD").status_code == 200
+    assert cash_ids(entity.id) == ids(cash_catalogue["HKD"])
+    assert put_entity(client, auth, entity.id, currency_id="JPY").status_code == 200
+    assert cash_ids(entity.id) == ids(cash_catalogue["JPY"])
+
+
+@pytest.mark.django_db
+def test_a_derived_currency_also_brings_its_denominations(
+    client, auth, entity, countries, currencies, cash_catalogue, modules
+):
+    from shared_models.models import CountryInfo
+
+    CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
+    put_entity(client, auth, entity.id, country_id="HK")
+    assert cash_ids(entity.id) == ids(cash_catalogue["HKD"])
+
+
+@pytest.mark.django_db
+def test_resaving_the_currency_keeps_the_company_s_own_choices(
+    client, auth, entity, currencies, cash_catalogue, modules
+):
+    put_entity(client, auth, entity.id, currency_id="HKD")
+    switched_off = cash_catalogue["HKD"][0]
+    EntityCashSetting.objects.filter(entity_id=entity.id, cash_id=switched_off.id).update(
+        is_active=False, display_order=99
+    )
+    put_entity(client, auth, entity.id, currency_id="HKD")
+    row = EntityCashSetting.objects.get(entity_id=entity.id, cash_id=switched_off.id)
+    assert (row.is_active, row.display_order) == (False, 99)
+    assert cash_ids(entity.id) == ids(cash_catalogue["HKD"])
+
+
+@pytest.mark.django_db
+def test_an_edit_without_a_currency_leaves_the_denominations(
+    client, auth, entity, currencies, cash_catalogue, modules
+):
+    put_entity(client, auth, entity.id, currency_id="HKD")
+    put_entity(client, auth, entity.id, contact_phone="")
+    assert cash_ids(entity.id) == ids(cash_catalogue["HKD"])
+
+
+# ---------------------------------------------------------------------------
 # Renaming -- a second gate, above membership
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
@@ -610,3 +712,42 @@ def test_an_unresolvable_country_on_update_changes_nothing(
     # The name assignment happens before the country check, but nothing was committed.
     assert entity.name == "Wizard Trading Co"
     assert entity.country_code == "HK"
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (2026-10-13): the browser's timezone, the country's currency, the creator's join date
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+def test_the_browser_timezone_is_saved_on_create_and_edit(client, auth, countries, modules):
+    entity_id = post_create(client, auth, entity_name="Tz Co", country_id="HK",
+                            timezone="Asia/Hong_Kong").json()["entity_id"]
+    assert Entity.objects.get(id=entity_id).timezone == "Asia/Hong_Kong"
+
+    assert put_entity(client, auth, entity_id, timezone="Asia/Singapore").status_code == 200
+    assert Entity.objects.get(id=entity_id).timezone == "Asia/Singapore"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["Mars/Olympus", "not a zone", "America/Argentina/ComodRivadavia"])
+def test_an_unusable_timezone_is_400(client, auth, countries, modules, value):
+    """Unknown to the IANA database, or longer than the 30-character column."""
+    resp = post_create(client, auth, entity_name="Bad Tz Co", country_id="HK", timezone=value)
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_create_takes_the_country_s_currency_when_none_is_sent(
+    client, auth, countries, currencies, modules
+):
+    from shared_models.models import CountryInfo
+
+    CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
+    entity_id = post_create(client, auth, entity_name="Country Co", country_id="HK").json()["entity_id"]
+    assert str(Entity.objects.get(id=entity_id).currency_id) == str(currencies["HKD"].id)
+
+
+@pytest.mark.django_db
+def test_the_creator_joins_when_the_company_is_created(client, auth, user, modules):
+    entity_id = post_create(client, auth, entity_name="Join Co").json()["entity_id"]
+    membership = UserEntity.objects.get(entity_id=entity_id, user_id=user.id)
+    assert membership.joined_at is not None

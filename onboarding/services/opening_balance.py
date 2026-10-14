@@ -1,56 +1,41 @@
 """The petty-cash opening balance -- the starting cash in the drawer on day one.
 
-Ported from Minty's ``blueprints/report/services/shared.py::seed_opening_draft``. It is the
-most subtle thing in Group D, and every branch below is load-bearing.
+Step 5 of the wizard saves it, with the date reporting starts from, on the company's
+``entity_pettycash_settings`` row (``opening_balance`` and ``start_date``). No report is
+written: Flask's report wizard reads the two values when the company opens its FIRST report
+-- the amount is that report's opening balance and the date its default and earliest date.
+Flask's ``blueprints/report/services/shared.py::save_opening_balance`` is the same function
+behind the same path.
 
 IT IS AN OPENING BALANCE, NOT A CASH ADDITION
 
-The amount the user types goes into ``opening_balance`` with ``cash_addition`` left at 0 --
-not the other way round. Recording it as an addition would make the starting cash look like
-money someone put INTO the drawer on day one, when it is what was already there. The
-adjusted opening equals the amount either way, so day one's closing balance is identical and
-every subsequent day (which derives its opening from the previous closing) is unaffected. The
-difference is purely what the report SAYS happened.
+The amount is what was already in the drawer, not money someone put into it, so the first
+report opens at it with ``cash_addition`` 0. The response keeps the old shape (``cash_addition``
+0, ``adjusted_opening_balance`` = the amount) so the wizard binds to either.
 
-TWO DIFFERENT KEYS, DEPENDING ON WHETHER ONBOARDING IS OVER
+ONCE A REPORT IS POSTED, IT IS TOO LATE
 
-  * While the entity has no POSTED report, the single existing draft IS the onboarding
-    opening draft. It is bound by ENTITY ALONE, so a revisit that changes the opening date
-    moves that draft's ``transaction_date`` instead of seeding a second one for the new date.
-  * Once any report has been posted, onboarding is over, and the key falls back to
-    ``(entity, date)`` so this can only ever touch a draft for the exact date requested and
-    never disturbs an unrelated day's work in progress.
-
-Both halves matter. Keying on (entity, date) always would leave a stale draft behind every
-time the user edited the date; keying on entity always would let this reach into a live
-drawer months later.
-
-THE "ALREADY EXISTS" CHECK EXCLUDES DRAFTS, AND THAT IS A BUG FIX
-
-It looks at POSTED reports only. An unfiltered check finds the onboarding draft this very
-function created on a previous call and refuses to update it -- Flask's comment records that
-this is exactly what "broke the all-set page after the r0 backfill ran".
+The first report has already taken its opening from these values, so a change would do
+nothing; it is refused (409) rather than silently ignored.
 
 NO SEVEN-DAY WINDOW
 
-The regular first-report flow constrains the start date; onboarding deliberately does not,
-so a user can pick any past date in the current month. Only future dates are refused, and
-that boundary is Hong Kong midnight rather than UTC -- otherwise a user in the evening is
-refused a date they are already living in.
+A user can pick any past date. Only future dates are refused, and that boundary is Hong Kong
+midnight rather than UTC -- otherwise a user in the evening is refused a date they are
+already living in.
 """
 
 import logging
-import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import transaction
 from django.db.models import Q
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
-from shared_models.models import Report
+from shared_models.models import CurrencyInfo, Entity, EntityPettycashSettings, Report
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -58,16 +43,22 @@ logger = logging.getLogger("minty-onboarding")
 DRAFT = "draft"
 
 
-def _safe_float(value) -> float:
-    """Best-effort float, 0.0 on anything unparseable.
-
-    Mirrors Flask's ``safe_float``. Deliberately lenient rather than raising: the field is a
-    number the user typed, and the negative check below is the one that actually matters.
-    """
+def _parse_amount(value, decimal_places: int) -> Decimal:
+    """The typed amount as a Decimal in the currency's places. A blank is 0; anything
+    unparseable, or finer than the currency allows (JPY takes whole amounts), is a 400."""
+    if value is None or value == "":
+        return Decimal(0).quantize(Decimal(1).scaleb(-decimal_places))
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        raise OnboardingValidationError("Opening amount must be a number") from None
+    if not amount.is_finite():
+        raise OnboardingValidationError("Opening amount must be a number")
+    if amount.normalize().as_tuple().exponent < -decimal_places:
+        raise OnboardingValidationError(
+            f"That amount has more decimal places than the currency allows ({decimal_places})."
+        )
+    return amount.quantize(Decimal(1).scaleb(-decimal_places))
 
 
 def _parse_date(value):
@@ -91,117 +82,50 @@ def _posted_reports(entity_id: str):
     )
 
 
-def seed_opening_draft(user_id, entity_id: str, transaction_date, cash_addition) -> dict:
-    """Create or update the entity's onboarding opening draft.
-
-    Returns the payload Flask returns, including ``created`` so the wizard can tell an
-    insert from an update.
-    """
+def save_opening_balance(user_id, entity_id: str, start_date, amount) -> dict:
+    """Save the company's opening balance and start date on its petty-cash settings row."""
     if not has_permission_by_user_id(user_id, Permission.REPORT_EDIT_OWN, entity_id):
         raise AccessDeniedError("Access denied")
 
-    tx_date = _parse_date(transaction_date)
-    if not tx_date:
-        raise OnboardingValidationError("A start date is required")
+    start = _parse_date(start_date)
 
     # Hong Kong midnight, not UTC -- see the module header.
     today_local = datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)).date()
-    if tx_date > today_local:
+    if start > today_local:
         raise OnboardingValidationError(
             "Start date cannot be in the future. "
             f"You can only choose dates up to {today_local}."
         )
 
-    amount = _safe_float(cash_addition)
-    if amount < 0:
+    # The amount is cash in a currency, and the first report counts it in that currency's
+    # denominations (cash_info) - so there is no opening balance without one.
+    currency_id = Entity.objects.filter(id=entity_id).values_list("currency_id", flat=True).first()
+    currency = CurrencyInfo.objects.filter(id=currency_id).first() if currency_id else None
+    if currency is None:
+        raise OnboardingValidationError("Set the company's currency first.")
+
+    value = _parse_amount(amount, currency.decimal_places)
+    if value < 0:
         raise OnboardingValidationError("Opening amount cannot be negative")
 
-    # POSTED reports only. Including drafts here finds the draft this function wrote on a
-    # previous call and refuses to update it.
-    if _posted_reports(entity_id).filter(transaction_date=tx_date).exists():
-        raise ConflictError(f"A report for {tx_date} already exists.")
+    if _posted_reports(entity_id).exists():
+        raise ConflictError(
+            "Your first report is already posted, so the opening balance can't change."
+        )
 
-    # created_by is the person's id (schema); a caller without one leaves it NULL
-    creator_id = str(user_id) if user_id else None
-
-    # opening_balance (amount) + cash_addition (0).
-    adjusted = amount
-
-    with transaction.atomic():
-        onboarding_over = _posted_reports(entity_id).exists()
-
-        if onboarding_over:
-            # Exact date only -- never reach into another day's in-progress draft.
-            draft = Report.objects.filter(
-                entity_id=entity_id, transaction_date=tx_date, status=DRAFT
-            ).first()
-        else:
-            # Entity alone, earliest first: the single draft IS the onboarding one, so
-            # changing the date MOVES it rather than leaving a stale row behind.
-            draft = (
-                Report.objects.filter(entity_id=entity_id, status=DRAFT)
-                .order_by("transaction_date")
-                .first()
-            )
-
-        if draft is not None:
-            draft.transaction_date = tx_date
-            draft.opening_balance = amount
-            draft.cash_addition = 0.0
-            draft.adjusted_opening_balance = adjusted
-            draft.closing_balance = adjusted
-            draft.next_transaction_date = tx_date + timedelta(days=1)
-            if creator_id:
-                draft.created_by = creator_id
-            draft.save(
-                update_fields=[
-                    "transaction_date", "opening_balance", "cash_addition",
-                    "adjusted_opening_balance", "closing_balance",
-                    "next_transaction_date", "created_by",
-                ]
-            )
-            created = False
-        else:
-            draft = Report.objects.create(
-                id=str(uuid.uuid4()),
-                entity_id=entity_id,
-                status=DRAFT,
-                # created_at / updated_at come from the database (schema defaults) - the
-                # NULL-date trap this row used to spring on Minty's dashboard is gone.
-                transaction_date=tx_date,
-                next_transaction_date=tx_date + timedelta(days=1),
-                opening_balance=amount,
-                cash_addition=0.0,
-                adjusted_opening_balance=adjusted,
-                closing_balance=adjusted,
-                # Onboarding records no sales and no deposit; the same zeros Flask writes
-                # for a fresh opening draft, so the two rows are indistinguishable.
-                cashsale_total=0.0,
-                nocashsale_total=0.0,
-                total_sales=0.0,
-                bank_deposit=0.0,
-                expense_total=0.0,
-                xero_integrated=False,
-                discrepancy_amount=0.0,
-                discrepancy_type="none",
-                created_by=creator_id,
-                # The opening is seeded here, but the user still STARTS their first report
-                # at the opening section so they can see and confirm it -- so the section is
-                # deliberately not pre-marked complete.
-                current_section="opening",
-                completed_sections=[],
-            )
-            created = True
+    # Step 5 runs before Step 6 (account codes) creates the row, so it may not exist yet.
+    row, created = EntityPettycashSettings.objects.get_or_create(entity_id=entity_id)
+    row.opening_balance = value
+    row.start_date = start
+    row.save(update_fields=["opening_balance", "start_date"])
 
     logger.info(
-        "opening balance: entity=%s date=%s amount=%s created=%s draft=%s",
-        entity_id, tx_date, amount, created, draft.id,
+        "opening balance: entity=%s start=%s amount=%s settings_created=%s",
+        entity_id, start, value, created,
     )
     return {
-        "draft_id": draft.id,
-        "transaction_date": tx_date.isoformat(),
-        "opening_balance": amount,
+        "opening_date": start.isoformat(),
+        "opening_balance": float(value),
         "cash_addition": 0.00,
-        "adjusted_opening_balance": adjusted,
-        "created": created,
+        "adjusted_opening_balance": float(value),
     }

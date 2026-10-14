@@ -31,6 +31,7 @@ shop_manager could cancel the admin invitation that would have outranked them.
 """
 
 import logging
+from datetime import UTC, datetime
 
 from core.exceptions import AccessDeniedError, NotFoundError, OnboardingValidationError
 from core.policy import Permission, can_manage_role_assignment_for_entity, has_permission_by_user_id
@@ -59,6 +60,10 @@ def invite_payload(inv: Invitation) -> dict:
         "first_name": inv.first_name or "",
         "last_name": inv.last_name or "",
         "created_at": inv.created_at.isoformat() if inv.created_at else None,
+        # Step 3 shows when each invite lapses, and that a lapsed one needs Resend. A row with
+        # no expires_at (older invitations) never expires - Flask's rule.
+        "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
+        "expired": bool(inv.expires_at and inv.expires_at <= datetime.now(UTC)),
     }
 
 

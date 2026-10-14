@@ -48,6 +48,14 @@ def post_invite(request, payload: dict = Body(default={})):
     return minty_client.proxy(request, "/api/onboarding/invite", json=payload)
 
 
+@invites_router.post("/invite/resend")
+def post_invite_resend(request, payload: dict = Body(default={})):
+    """Body ``{invitation_id}``. PROXIED, like sending: Flask sends the email (its template,
+    its accept link) and enforces the same gates as cancel plus the resend cooldown, whose
+    429 ``{"error", "retry_after"}`` comes back as itself."""
+    return minty_client.proxy(request, "/api/onboarding/invite/resend", json=payload)
+
+
 @invites_router.post("/invite/cancel")
 def post_invite_cancel(request, payload: CancelInviteIn):
     """Cancel a pending invitation.

@@ -12,7 +12,7 @@ import pytest
 
 from core import minty_client
 from shared_models.models import Invitation, UserEntity
-from tests.conftest import make_token
+from tests.conftest import make_token, requires_postgres
 
 INVITE = "/api/onboarding/invite"
 CANCEL = "/api/onboarding/invite/cancel"
@@ -83,6 +83,7 @@ def test_listing_requires_membership(client, other_user, entity):
     assert resp.status_code == 403
 
 
+@requires_postgres  # reads /state (a Postgres view)
 @pytest.mark.django_db
 def test_a_cashier_is_refused_the_invite_list_endpoint(client, user, entity):
     """DIFFERENT FROM /state, and deliberately so.
@@ -299,3 +300,43 @@ def test_sending_still_needs_a_token(client, entity):
         content_type="application/json",
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Expiry and resend (2026-10-13)
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+def test_the_list_says_when_each_invitation_expires(client, auth, entity):
+    from datetime import timedelta
+
+    make_invite(entity, email="live@example.com", expires_at=datetime.now(UTC) + timedelta(days=3))
+    make_invite(entity, email="lapsed@example.com", expires_at=datetime.now(UTC) - timedelta(days=1))
+
+    rows = {r["email"]: r for r in client.get(INVITE, {"entity_id": entity.id}, **auth).json()["invitations"]}
+
+    assert rows["live@example.com"]["expired"] is False and rows["live@example.com"]["expires_at"]
+    assert rows["lapsed@example.com"]["expired"] is True
+
+
+@pytest.mark.django_db
+def test_resending_is_forwarded_to_flask(client, auth, entity, monkeypatch):
+    """Flask sends the email (its template, its accept link); this only forwards."""
+    seen = {}
+
+    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
+        seen.update(path=path, json=json)
+        return {"message": "Invitation sent again."}, 200
+
+    monkeypatch.setattr(minty_client, "forward", fake_forward)
+    resp = client.post(f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth)
+
+    assert resp.status_code == 200
+    assert seen == {"path": "/api/onboarding/invite/resend", "json": {"invitation_id": "abc"}}
+
+
+@pytest.mark.django_db
+def test_a_resend_cooldown_keeps_flasks_429(client, auth, entity, monkeypatch):
+    monkeypatch.setattr(minty_client, "forward",
+                        lambda *a, **k: ({"error": "Wait a moment.", "retry_after": 42}, 429))
+    resp = client.post(f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth)
+    assert resp.status_code == 429 and resp.json()["retry_after"] == 42

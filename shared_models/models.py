@@ -10,11 +10,12 @@ but it is the established convention, and inventing a second DDL owner is worse.
 
 WHAT THIS SERVICE MAY WRITE
 
-Writable:  entities, user_entity, entity_sale_setting
+Writable:  entities, user_entity, entity_sale_setting, entity_cash_setting,
+           entity_pettycash_settings (opening_balance and start_date only),
+           invitations (cancelling a pending one only)
 Write-restricted: entity_function_map -- ONLY with is_enabled=False (see below)
-Read-only: user, country_info, currency_info, sale_info, entity_function,
-           billing_plan, billing_policy, report, entity_pettycash_settings, invitations
-           (the last three become writable with Groups D and E)
+Read-only: user, country_info, currency_info, cash_info, sale_info, entity_function,
+           billing_plan, billing_policy, report
 
 ``entity_function_map`` is read-only ON PURPOSE, and it is the one that looks like it
 should not be. Onboarding Step 2 picks modules, so writing the module map from here is
@@ -55,10 +56,10 @@ no server default. A draft created here without it stored NULL, and Minty's Sele
 page -- which does ``datetime.now() - report.date`` with no guard -- died with a TypeError on
 the whole page for that user.
 
-NEITHER the test suite NOR the parity sweep could catch it: SQLite builds its tables from
+NEITHER the SQLite suite NOR the parity sweep could catch it: SQLite builds its tables from
 these models so the insert succeeded, and parity only compares READS. Only a real write
-followed by a real read from the other service would have shown it, which is what
-``scripts/smoke_write.py`` now asserts.
+would have shown it, which is what the suite's Postgres run (``MINTY_TEST_PG_URI``, the
+database built from the schema file) now does.
 
 So: before writing a table, check the Flask model for ``default=`` (without ``server_``) on
 every column, and fill each one explicitly. A row this service writes must be
@@ -78,6 +79,7 @@ from django.db import models
 from django.db.models.functions import Now
 
 from shared_models.enums import (
+    CashType,
     DiscrepancyType,
     EntityRole,
     EntityStatus,
@@ -287,6 +289,53 @@ class CurrencyInfo(models.Model):
         return f"{self.currency_code} ({self.currency_name})"
 
 
+class CashInfo(models.Model):
+    """Read-only. The per-currency catalogue of cash denominations (``cash_info``).
+
+    One row per face value of a currency; Flask's cash count reads it. Onboarding copies a
+    currency's active rows into ``EntityCashSetting`` when a company's currency is set.
+    """
+
+    id = models.UUIDField(primary_key=True)
+    currency_id = models.UUIDField()
+    # NOT NULL, and part of the unique key (currency_id, cash_value, type): HKD's $10 note
+    # and $10 coin are two rows.
+    type = PgEnumField("cash_type", choices=CashType.choices)
+    cash_value = models.DecimalField(max_digits=12, decimal_places=2)
+    cash_name = models.CharField(max_length=20, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(default=0)
+
+    class Meta:
+        managed = False
+        db_table = "cash_info"
+
+    def __str__(self):
+        return f"{self.type} {self.cash_value}"
+
+
+class EntityCashSetting(models.Model):
+    """Which denominations a company counts (``entity_cash_setting``), keyed
+    ``(entity_id, cash_id)``. Written by onboarding/services/cash_settings.py: one row per
+    active ``cash_info`` row of the company's currency."""
+
+    pk = models.CompositePrimaryKey("entity_id", "cash_id")
+    entity_id = models.UUIDField()
+    cash_id = models.UUIDField()
+    is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        managed = False
+        db_table = "entity_cash_setting"
+
+    def __str__(self):
+        return f"{self.cash_id} for {self.entity_id} ({'on' if self.is_active else 'off'})"
+
+
 # ---------------------------------------------------------------------------
 # Module catalog and gate -- READ-ONLY, see the module header
 # ---------------------------------------------------------------------------
@@ -451,9 +500,9 @@ class EntityPettycashSettings(models.Model):
 
     ``entity_id`` is the primary key -- one row per entity, not an id column. The account
     and contact columns are FKs to the company's synced ``account_info`` /
-    ``xero_contact_sync`` rows (uuids); Group B reads whether ``pettycash_account_id`` is
-    set, which is what marks Step 6 (account codes) as done, and Group D writes the six
-    account columns.
+    ``xero_contact_sync`` rows (uuids). Flask writes them (steps 6 and 7 are proxied there);
+    this service writes only ``opening_balance`` and ``start_date`` (step 5). Whether Step 6
+    is done is read from ``EntitySetupSummary.pettycash_account_id``.
     """
 
     entity_id = models.UUIDField(primary_key=True)
@@ -477,6 +526,40 @@ class EntityPettycashSettings(models.Model):
 
     def __str__(self):
         return f"pettycash settings for {self.entity_id}"
+
+
+class EntitySetupSummary(models.Model):
+    """READ-ONLY VIEW ``entity_setup_summary`` -- one row per company describing its setup.
+
+    Defined in Minty's ``docs/schema/01_schema_rebased.sql`` (section 5). Onboarding resume
+    reads modules, Xero, the step-6 flag and the opening balance from it, and finalize reads
+    the setup counts. It is a view of Postgres SQL, so it is NOT in the SQLite managed list
+    (shared_models/apps.py): tests that read it carry ``requires_postgres``. Only the columns
+    this service reads are mapped; nothing ever writes through it.
+    """
+
+    entity_id = models.UUIDField(primary_key=True)
+    xero_org_linked = models.BooleanField()
+    xero_org_id = models.CharField(max_length=36, null=True)
+    xero_tenant_name = models.CharField(max_length=255, null=True)
+    pettycash_module_enabled = models.BooleanField()
+    bill_module_enabled = models.BooleanField()
+    pettycash_accounts_set = models.IntegerField()
+    pettycash_accounts_total = models.IntegerField()
+    pettycash_contacts_set = models.IntegerField()
+    pettycash_contacts_total = models.IntegerField()
+    bill_accounts_set = models.BigIntegerField()  # count(*)
+    bill_accounts_default_inactive = models.BigIntegerField()  # count(*)
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True)
+    start_date = models.DateField(null=True)
+    pettycash_account_id = models.UUIDField(null=True)
+
+    class Meta:
+        managed = False
+        db_table = "entity_setup_summary"
+
+    def __str__(self):
+        return f"setup of {self.entity_id}"
 
 
 class EntitySaleSetting(models.Model):

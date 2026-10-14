@@ -2,13 +2,13 @@
 
     /create            -> `entities` (status onboarding), the creator's `user_entity` (super_admin),
                           one `entity_function_map` row per module (disabled, created_by = the
-                          person), the eleven default `entity_sale_setting` links
+                          person), the eleven default `entity_sale_setting` links, one
+                          `entity_cash_setting` row per active denomination of the currency
     the module step    -> Petty Cash on (as the subscription would grant it)
     the accounting step-> `xero_org_id` set; the account-code step -> `entity_pettycash_settings`
                           pointing at an `account_info` row
     /sales-methods     -> the company's `entity_sale_setting` links follow the choice
-    /opening-balance   -> ONE `report` row: draft, `entity_id`, `created_by` = the person,
-                          the stored aggregates zero, stamps from the database
+    /opening-balance   -> `entity_pettycash_settings.opening_balance` / `start_date`; no `report`
     an invitation      -> `invitation` (pending, role from the entity_role enum)
     /state             -> the step the saved data justifies, at every point
 
@@ -30,6 +30,7 @@ from onboarding.services import steps as step_defs
 from shared_models.models import (
     AccountInfo,
     Entity,
+    EntityCashSetting,
     EntityFunctionMap,
     EntityPettycashSettings,
     EntitySaleSetting,
@@ -37,8 +38,10 @@ from shared_models.models import (
     Report,
     UserEntity,
 )
+from tests.conftest import requires_postgres
 
-pytestmark = pytest.mark.django_db
+# Walks /state, which reads the entity_setup_summary VIEW: Postgres pass only.
+pytestmark = [pytest.mark.django_db, requires_postgres]
 
 CREATE = "/api/onboarding/create"
 STATE = "/api/onboarding/state"
@@ -57,10 +60,11 @@ def state_of(client, auth, entity_id):
 
 
 def test_the_wizard_leaves_the_companys_rows_on_the_schema(
-    client, auth, user, countries, currencies, modules, enable_module, monkeypatch
+    client, auth, user, countries, currencies, cash_catalogue, modules, enable_module, monkeypatch
 ):
     # ---- step 1: the company ---------------------------------------------------------------
     resp = post_json(client, auth, CREATE, {"entity_name": "Wizard Walk Ltd", "country_id": "HK",
+                                            "currency_id": str(currencies["HKD"].id),
                                             "contact_phone": "+852 1234 5678", "business_email": "hello@walk.test"})
     assert resp.status_code == 201, resp.content
     entity_id = resp.json()["entity_id"]
@@ -77,6 +81,9 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     # Cash only: electronic/delivery start empty until the wizard's Auto Fill (2026-10-02).
     assert [s.sale.value_name for s in defaults.select_related("sale")] == ["cash_sales"]
     assert all(s.is_active for s in defaults)
+    cash = {str(c.cash_id): c for c in EntityCashSetting.objects.filter(entity_id=entity_id)}
+    assert set(cash) == {str(c.id) for c in cash_catalogue["HKD"]}  # active HKD only
+    assert all(c.is_active for c in cash.values())
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_MODULE
 
     # ---- step 2: the module (Flask grants it; the row is what Flask writes) ------------------
@@ -106,20 +113,15 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     EntityPettycashSettings.objects.create(entity_id=entity_id, pettycash_account_id=account.id)
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_INVITE  # account codes done, no bill module -> invite
 
-    # ---- opening balance: ONE report row, the way Flask's opening draft looks --------------
+    # ---- opening balance: on the settings row Step 6 made; no report ----------------------
     resp = post_json(client, auth, OPENING, {"entity_id": entity_id, "opening_date": date.today().isoformat(), "cash_addition": "1500.50"})
     assert resp.status_code == 200, resp.content
-    assert resp.json()["created"] is True
-    (draft,) = Report.objects.filter(entity_id=entity_id)
-    assert draft.status == "draft" and str(draft.created_by) == str(user.id)
-    assert Decimal(draft.opening_balance) == Decimal("1500.50") and Decimal(draft.cash_addition) == 0
-    assert (draft.cashsale_total, draft.nocashsale_total, draft.total_sales, draft.expense_total) == (0, 0, 0, 0)
-    assert draft.created_at is not None and draft.updated_at is not None  # the database's stamps
-    assert draft.current_section == "opening" and draft.completed_sections == []
-    # re-saving the opening moves the same row, never a second one
+    settings_row = EntityPettycashSettings.objects.get(entity_id=entity_id)
+    assert settings_row.opening_balance == Decimal("1500.50") and settings_row.start_date == date.today()
+    assert settings_row.pettycash_account_id == account.id  # Step 6's mapping survives
+    assert not Report.objects.filter(entity_id=entity_id).exists()
     resp = post_json(client, auth, OPENING, {"entity_id": entity_id, "opening_date": date.today().isoformat(), "cash_addition": "2000"})
-    assert resp.status_code == 200 and resp.json()["created"] is False
-    assert Report.objects.filter(entity_id=entity_id).count() == 1
+    assert resp.status_code == 200
     assert state_of(client, auth, entity_id)["opening_balance"]["opening_balance"] == 2000.0
 
     # ---- an invitation (Flask writes it; the row on the schema) ----------------------------

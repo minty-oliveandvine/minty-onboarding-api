@@ -4,19 +4,27 @@ D1 (sales methods, opening balance) is tested as a port. D2 is tested as a PROXY
 assertions are about what gets forwarded and what comes back, not about Xero, because Xero is
 Flask's business.
 
-The opening-balance tests carry the weight. Its two different lookup keys -- entity alone
-before onboarding ends, exact date after -- are the kind of thing that looks arbitrary and is
-not, and either half getting lost is a silent data bug rather than an error.
+The opening balance is saved on ``entity_pettycash_settings`` (with the start date) and no
+report is written: the first report reads the two values when it is opened.
 """
 
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 
 from core import minty_client
 from core.exceptions import UpstreamError
-from shared_models.models import Entity, EntitySaleSetting, Report, SaleInfo, UserEntity
+from shared_models.models import (
+    AccountInfo,
+    Entity,
+    EntityPettycashSettings,
+    EntitySaleSetting,
+    Report,
+    SaleInfo,
+    UserEntity,
+)
 from tests.conftest import make_token
 
 SALES = "/api/onboarding/sales-methods"
@@ -244,163 +252,102 @@ def test_a_cashier_may_view_but_not_change_methods(client, user, entity):
 # ---------------------------------------------------------------------------
 # Opening balance
 # ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _entity_has_a_currency(request):
+    """The opening balance needs a currency (2026-10-13); give the shared entity one."""
+    if "entity" not in request.fixturenames or "no_currency" in request.keywords:
+        return
+    from shared_models.models import CurrencyInfo
+
+    entity = request.getfixturevalue("entity")
+    hkd = CurrencyInfo.objects.create(id=uuid.uuid4(), currency_code="HKD", currency_name="Hong Kong Dollar",
+                                      symbol="HK$", decimal_places=2, is_active=True)
+    Entity.objects.filter(id=entity.id).update(currency_id=hkd.id)
+
+
+def _settings(entity):
+    return EntityPettycashSettings.objects.filter(entity_id=entity.id).first()
+
+
 @pytest.mark.django_db
-def test_opening_balance_seeds_a_draft(client, auth, entity):
-    today = date.today().isoformat()
+def test_opening_balance_lands_on_the_settings_row(client, auth, entity):
+    today = date.today()
     resp = post_json(
         client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": today, "cash_addition": 1500.0},
+        {"entity_id": entity.id, "opening_date": today.isoformat(), "cash_addition": 1500.0},
     )
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["created"] is True
-    assert body["opening_balance"] == 1500.0
-    assert body["cash_addition"] == 0.0
-    assert body["adjusted_opening_balance"] == 1500.0
+    assert resp.json() == {
+        "opening_date": today.isoformat(),
+        "opening_balance": 1500.0,
+        "cash_addition": 0.0,
+        "adjusted_opening_balance": 1500.0,
+    }
+    row = _settings(entity)
+    assert row.opening_balance == Decimal("1500.00")
+    assert row.start_date == today
 
 
 @pytest.mark.django_db
-def test_the_amount_is_an_opening_balance_not_an_addition(client, auth, entity):
-    """The distinction the whole service exists to get right.
-
-    Recording it as cash_addition would make the starting drawer look like money someone put
-    in on day one. The adjusted opening is the same either way, so the arithmetic does not
-    change -- only what the report says happened.
-    """
+def test_no_report_is_written(client, auth, entity):
+    """The first report reads the settings when it is opened; onboarding seeds no draft."""
     post_json(
         client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
-         "cash_addition": 900.0},
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 9},
     )
-    draft = Report.objects.get(entity_id=entity.id, status="draft")
-    assert draft.opening_balance == 900.0
-    assert draft.cash_addition == 0.0
-    assert draft.adjusted_opening_balance == 900.0
-    assert draft.closing_balance == 900.0
+    assert not Report.objects.filter(entity_id=entity.id).exists()
 
 
 @pytest.mark.django_db
-def test_the_draft_starts_at_the_opening_section(client, auth, entity):
-    """Seeded, but not pre-marked complete: the user still confirms it in their first report."""
-    post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 1},
-    )
-    draft = Report.objects.get(entity_id=entity.id, status="draft")
-    assert draft.current_section == "opening"
-    assert draft.completed_sections == []
-
-
-@pytest.mark.django_db
-def test_next_transaction_date_is_the_following_day(client, auth, entity):
-    today = date.today()
-    post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": today.isoformat(), "cash_addition": 1},
-    )
-    draft = Report.objects.get(entity_id=entity.id, status="draft")
-    assert draft.next_transaction_date == today + timedelta(days=1)
-
-
-@pytest.mark.django_db
-def test_changing_the_date_moves_the_same_draft(client, auth, entity):
-    """THE FIRST OF THE TWO KEYS: entity alone, while onboarding is still running.
-
-    Keying on (entity, date) here would leave a stale draft behind every time the user
-    edited the opening date, and `/state` would then read the wrong one.
-    """
+def test_an_existing_settings_row_is_updated_not_replaced(client, auth, entity):
+    """Step 6 may have created the row first; its account mapping must survive."""
+    account = AccountInfo.objects.create(
+        id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+    ).id
+    EntityPettycashSettings.objects.create(entity_id=entity.id, pettycash_account_id=account)
     first = date.today() - timedelta(days=5)
     second = date.today() - timedelta(days=2)
+    for day, amount in ((first, 100), (second, 250)):
+        assert post_json(
+            client, auth, OPENING,
+            {"entity_id": entity.id, "opening_date": day.isoformat(), "cash_addition": amount},
+        ).status_code == 200
 
-    a = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": first.isoformat(), "cash_addition": 100},
-    ).json()
-    b = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": second.isoformat(), "cash_addition": 250},
-    ).json()
-
-    assert b["created"] is False
-    assert b["draft_id"] == a["draft_id"]
-    assert Report.objects.filter(entity_id=entity.id).count() == 1
-    draft = Report.objects.get(entity_id=entity.id)
-    assert draft.transaction_date == second
-    assert draft.opening_balance == 250.0
+    assert EntityPettycashSettings.objects.filter(entity_id=entity.id).count() == 1
+    row = _settings(entity)
+    assert row.start_date == second
+    assert row.opening_balance == Decimal("250.00")
+    assert row.pettycash_account_id == account
 
 
 @pytest.mark.django_db
-def test_after_a_posted_report_the_key_becomes_the_exact_date(client, auth, entity):
-    """THE SECOND KEY. Onboarding is over, so this must not reach into another day's draft.
-
-    There is a posted report and an in-progress draft for an unrelated day. Seeding an
-    opening for a third date must create its own row and leave that draft alone.
-    """
-    posted_day = date.today() - timedelta(days=10)
-    other_day = date.today() - timedelta(days=3)
-    target_day = date.today() - timedelta(days=1)
-
+@pytest.mark.parametrize("status", ["submitted", "published"])
+def test_once_a_report_is_posted_it_is_409(client, auth, entity, status):
+    """The first report already took its opening from the settings; a change would do nothing."""
     Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
-        transaction_date=posted_day, opening_balance=0.0, cash_addition=0.0,
+        id=str(uuid.uuid4()), entity_id=entity.id, status=status,
+        transaction_date=date.today() - timedelta(days=10),
+        opening_balance=0.0, cash_addition=0.0,
     )
-    untouched = Report.objects.create(
+    resp = post_json(
+        client, auth, OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 10},
+    )
+    assert resp.status_code == 409
+    assert _settings(entity) is None
+
+
+@pytest.mark.django_db
+def test_a_draft_report_does_not_block_a_save(client, auth, entity):
+    """Only a POSTED report ends onboarding; an entity onboarded before the settings
+    columns were used still has its seeded draft."""
+    Report.objects.create(
         id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
-        transaction_date=other_day, opening_balance=777.0, cash_addition=0.0,
+        transaction_date=date.today() - timedelta(days=3),
+        opening_balance=5.0, cash_addition=0.0,
     )
-
-    resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": target_day.isoformat(), "cash_addition": 50},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["created"] is True
-
-    untouched.refresh_from_db()
-    assert untouched.opening_balance == 777.0
-    assert untouched.transaction_date == other_day
-
-
-@pytest.mark.django_db
-def test_a_posted_report_on_the_same_date_is_409(client, auth, entity):
-    day = date.today() - timedelta(days=1)
-    Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
-        transaction_date=day, opening_balance=0.0, cash_addition=0.0,
-    )
-    resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": day.isoformat(), "cash_addition": 10},
-    )
-    assert resp.status_code == 409
-    assert "already exists" in resp.json()["error"]
-
-
-@pytest.mark.django_db
-def test_a_published_report_counts_as_posted(client, auth, entity):
-    """Any status but draft is a finished report (``status`` is NOT NULL since C4)."""
-    day = date.today() - timedelta(days=1)
-    Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status="published",
-        transaction_date=day, opening_balance=0.0, cash_addition=0.0,
-    )
-    resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": day.isoformat(), "cash_addition": 10},
-    )
-    assert resp.status_code == 409
-
-
-@pytest.mark.django_db
-def test_our_own_draft_does_not_block_a_resave(client, auth, entity):
-    """THE BUG THE POSTED-ONLY FILTER FIXES.
-
-    An unfiltered existence check finds the draft this function wrote on the previous call
-    and refuses to update it. Flask's comment records that this is what "broke the all-set
-    page after the r0 backfill ran".
-    """
-    day = date.today().isoformat()
-    body = {"entity_id": entity.id, "opening_date": day, "cash_addition": 100}
+    body = {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 100}
     assert post_json(client, auth, OPENING, body).status_code == 200
     assert post_json(client, auth, OPENING, body).status_code == 200
 
@@ -414,11 +361,12 @@ def test_a_future_date_is_refused(client, auth, entity):
     )
     assert resp.status_code == 400
     assert "future" in resp.json()["error"]
+    assert _settings(entity) is None
 
 
 @pytest.mark.django_db
 def test_an_old_past_date_is_allowed(client, auth, entity):
-    """Onboarding deliberately has NO seven-day window, unlike the regular first report."""
+    """Onboarding deliberately has NO seven-day window."""
     old = (date.today() - timedelta(days=25)).isoformat()
     resp = post_json(
         client, auth, OPENING,
@@ -449,25 +397,27 @@ def test_a_negative_amount_is_refused(client, auth, entity):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("value", ["abc", "NaN", "Infinity"])
+def test_a_non_number_amount_is_400(client, auth, entity, value):
+    resp = post_json(
+        client, auth, OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
+         "opening_balance": value},
+    )
+    assert resp.status_code == 400
+    assert _settings(entity) is None
+
+
+@pytest.mark.django_db
 def test_opening_balance_is_accepted_as_the_legacy_amount_key(client, auth, entity):
     resp = post_json(
         client, auth, OPENING,
         {"entity_id": entity.id, "transaction_date": date.today().isoformat(),
-         "opening_balance": 42},
+         "opening_balance": "42.50"},
     )
     assert resp.status_code == 200
-    assert resp.json()["opening_balance"] == 42.0
-
-
-@pytest.mark.django_db
-def test_created_by_records_the_person(client, auth, entity, user):
-    """``report.created_by`` is the person's id (was the username in ``uploaded_by``)."""
-    post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
-         "cash_addition": 1},
-    )
-    assert str(Report.objects.get(entity_id=entity.id).created_by) == str(user.id)
+    assert resp.json()["opening_balance"] == 42.5
+    assert _settings(entity).opening_balance == Decimal("42.50")
 
 
 @pytest.mark.django_db
@@ -556,3 +506,24 @@ def test_a_proxied_endpoint_requires_an_entity_id(client, auth):
     resp = client.get(ACCOUNT_CODES, **auth)
     assert resp.status_code == 400
     assert resp.json() == {"error": "entity_id is required"}
+
+
+@pytest.mark.django_db
+@pytest.mark.no_currency
+def test_the_opening_balance_needs_a_currency(client, auth, entity):
+    resp = post_json(
+        client, auth, OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 10},
+    )
+    assert resp.status_code == 400
+    assert "currency" in resp.json()["error"].lower()
+    assert _settings(entity) is None
+
+
+@pytest.mark.django_db
+def test_an_amount_finer_than_the_currency_is_400(client, auth, entity):
+    resp = post_json(
+        client, auth, OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "opening_balance": "10.005"},
+    )
+    assert resp.status_code == 400

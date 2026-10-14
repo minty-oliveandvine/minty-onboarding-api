@@ -1,8 +1,8 @@
 """Group D -- petty-cash configuration. SPLIT IN TWO, and the split is the point.
 
 D1 PORTED HERE: ``sales-methods`` and ``opening-balance``. Neither touches Xero --
-``payment_methods.py`` in Flask has zero Xero references, and the opening draft is a plain
-row. Both are clean ports.
+``payment_methods.py`` in Flask has zero Xero references, and the opening balance is two
+columns on the settings row. Both are clean ports.
 
 D2 PROXIED TO FLASK: ``account-codes``, ``contacts``, ``contacts/create``, ``bill-codes``.
 
@@ -82,10 +82,10 @@ def post_sales_methods(request, payload: SalesMethodsIn):
 
 @pettycash_router.post("/opening-balance")
 def post_opening_balance(request, payload: OpeningBalanceIn):
-    """Seed or move the onboarding opening draft.
+    """Save the opening balance and start date on the company's petty-cash settings.
 
-    The amount lands in ``opening_balance`` with ``cash_addition`` at 0 -- it is cash that was
-    already in the drawer, not money added to it. See services/opening_balance.py.
+    The first report opens at this amount -- cash that was already in the drawer, not money
+    added to it. See services/opening_balance.py.
     """
     entity_for_member(request.auth_user_id, payload.entity_id)
 
@@ -97,7 +97,7 @@ def post_opening_balance(request, payload: OpeningBalanceIn):
         if payload.cash_addition is not None
         else (payload.opening_balance if payload.opening_balance is not None else 0)
     )
-    return opening_service.seed_opening_draft(
+    return opening_service.save_opening_balance(
         request.auth_user_id, payload.entity_id, date_value, amount
     )
 

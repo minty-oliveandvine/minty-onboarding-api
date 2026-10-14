@@ -23,6 +23,7 @@ import pytest
 from core import permissions, policy
 from core.policy import Permission, Role
 from shared_models.models import User, UserEntity
+from tests.conftest import requires_postgres
 
 
 def person(**over):
@@ -236,6 +237,7 @@ def test_the_door_ignores_approval_and_the_room_does_not(user, entity):
     assert policy.has_entity_access(user, entity.id) is False
 
 
+@requires_postgres  # reads /state (a Postgres view)
 @pytest.mark.django_db
 def test_an_unapproved_member_can_still_resume(client, auth, user, entity, modules):
     """What the divergence buys: the resume works. The invite list -- which needs

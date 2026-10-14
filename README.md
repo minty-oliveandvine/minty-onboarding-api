@@ -20,8 +20,9 @@ default, and an insert here that omits it stores NULL.
 `report.date` is one: a Django-written draft stored NULL, and Minty's Select Company page —
 `datetime.now() - report.date`, no guard — took down the whole page with a TypeError.
 
-Neither the suite nor the parity sweep catches this: SQLite builds its tables from the
-mirrors, and parity only compares reads. `scripts/smoke_write.py` asserts it now.
+The SQLite suite cannot catch this - it builds its tables from the mirrors - and parity
+only compares reads. The suite's Postgres run (below) writes through the real schema and
+does.
 
 **Before writing any table, grep the Flask model for `default=` without `server_`, and set
 every one explicitly.**
@@ -183,34 +184,35 @@ cp .env.example .env          # then set SECRET_KEY and DATABASE_URL to match Mi
 
 ## Testing
 
-Two layers, and neither substitutes for the other.
-
 ```sh
 .venv/Scripts/python -m pytest                  # unit: logic, auth, shapes (SQLite)
+# the same suite on the real schema (a unique database name per run):
+MINTY_TEST_PG_URI=<local postgres URI> MINTY_TEST_PG_DBNAME=<unique> .venv/Scripts/python -m pytest
 .venv/Scripts/python scripts/parity.py          # reads: vs live Flask on real Postgres
-.venv/Scripts/python scripts/smoke_write.py     # writes: real Postgres, rolled back
 ```
 
 **Three layers, and none of them is redundant.**
 
-The suite runs on SQLite and builds its tables **from the models**, so a mirror that omits
-a column simply has no such column in the test database: the insert succeeds and the suite
-is green, while the same insert fails on Postgres. That is not hypothetical —
+On SQLite the suite builds its tables **from the models**, so a mirror that omits a column
+simply has no such column in the test database: the insert succeeds and the suite is green,
+while the same insert fails on Postgres. That is not hypothetical —
 `entity_function_map.created_at` and `updated_at` are NOT NULL with no database default,
 they were missing from the mirror, and only a real write found it.
+
+The Postgres run (`MINTY_TEST_PG_URI`; CI runs it too) builds its database from Minty's
+`docs/schema/01_schema_rebased.sql` instead, so every write lands on the real columns and
+the real defaults. That is what catches a **wrong default**, which is worse than a missing
+column: `entity_function_map.is_enabled` defaults to `true` in the database, so a row
+inserted without naming it grants the module — and on SQLite, whose default comes from the
+model, it would report `False` and pass. (`scripts/smoke_write.py` did this by hand until
+2026-10-12; it had gone stale and was deleted.)
 
 `scripts/parity.py` covers the reads: it calls both services with the same token against
 the same database, sweeps every entity rather than sampling one, and compares status and
 body exactly.
 
-`scripts/smoke_write.py` covers the writes, inside a transaction that always rolls back.
-It is the only layer that can catch a **wrong default**, which is worse than a missing
-column: `entity_function_map.is_enabled` defaults to `true` in the database, so a row
-inserted without naming it grants the module — and a SQLite test, whose default comes from
-the model, would report `False` and pass.
-
-**A group is not done because its tests are green — it is done when parity reports MATCH
-(or a registered EXPECTED) for every read in it and the write smoke test is clean.** That is what makes deleting the Flask route safe.
+**A group is not done because its tests are green on SQLite — it is done when the Postgres
+run is green too and parity reports MATCH (or a registered EXPECTED) for every read in it.** That is what makes deleting the Flask route safe.
 
 Retiring a Flask route also means editing the `csrf.exempt` block in Minty's
 `services/app_runtime/legacy/bootstrap.py` and the two tests that pin it

@@ -60,6 +60,7 @@ PROXIED = {
     # Group E -- sending. The email links into a Flask route and uses a Flask template, so
     # a URL built here would be a guess at someone else's routing that fails silently.
     "POST /invite",
+    "POST /invite/resend",
     # Group F -- enabling a module is a subscription write, not an entity write
     "POST /modules",
     # Group G -- Stripe and billing consent (subscription API), the Xero disconnect (Flask)
@@ -171,8 +172,11 @@ def test_the_whole_flask_surface_is_answered():
     company holds, for the move offered when a connect is refused. The wizard reached for it
     before this proxy existed and got a 404 that it showed as "I couldn't disconnect that
     company from Xero" -- which is exactly the per-path gap this test exists to catch.
+
+    32 -> 33 on 2026-10-13: ``POST /invite/resend`` joins, proxied beside ``POST /invite``
+    (Flask sends the email). Step 3 offers Resend on an expired or unanswered invite.
     """
     assert len(PORTED) == 14
-    assert len(PROXIED) == 18
-    assert len(EXPECTED) == 32
+    assert len(PROXIED) == 19
+    assert len(EXPECTED) == 33
     assert set(_operations()) == EXPECTED

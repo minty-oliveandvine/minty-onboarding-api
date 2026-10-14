@@ -6,7 +6,7 @@ half is ported; the form keeps using Flask's copy, so BOTH paths write ``entitie
 the cutover. They are safe together because the rows are disjoint per request -- but never
 let both run for a single company.
 
-FOUR TABLES, NOT ONE
+FIVE TABLES, NOT ONE
 
 Creating an entity writes:
 
@@ -14,6 +14,7 @@ Creating an entity writes:
     user_entity           the creator's membership
     entity_sale_setting   default payment/delivery methods
     entity_function_map   one row per module, ALL OFF  <- see the guard below
+    entity_cash_setting   the currency's denominations (services/cash_settings.py)
 
 IDEMPOTENCY IS LOAD-BEARING, NOT A NICETY
 
@@ -49,6 +50,7 @@ from datetime import UTC, datetime
 from django.db import transaction
 
 from core.exceptions import ConflictError, OnboardingValidationError
+from onboarding.services.cash_settings import sync_cash_settings
 
 # Imported rather than redeclared: two lists each calling themselves canonical is exactly
 # how they drift apart. services/plans.py owns the module codes; state.py imports them from
@@ -258,9 +260,13 @@ def create_entity_for_user(
             entity_id=entity.id,
             role=CREATOR_ROLE,
             approved=True,
+            # The schema gives joined_at no default; an invitee gets it on accepting, the
+            # creator on creating.
+            joined_at=datetime.now(UTC),
         )
         _seed_default_sales_methods(entity.id)
         _seed_module_defaults(entity.id, user_id=user_id)
+        sync_cash_settings(entity.id, currency_id)
 
     logger.info("onboarding: created entity %s for user %s", entity.id, user_id)
     return entity, True

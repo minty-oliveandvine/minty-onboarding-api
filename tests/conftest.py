@@ -17,6 +17,7 @@ compares them. Both are needed; neither substitutes for the other.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import jwt
 import pytest
@@ -26,6 +27,7 @@ from django.test import Client
 from shared_models.models import (
     BillingPlan,
     BillingPolicy,
+    CashInfo,
     CountryInfo,
     CurrencyInfo,
     Entity,
@@ -33,6 +35,18 @@ from shared_models.models import (
     EntityFunctionMap,
     User,
     UserEntity,
+)
+
+
+def _on_postgres() -> bool:
+    return settings.DATABASES["default"]["ENGINE"].endswith("postgresql")
+
+
+#: For tests that read a database VIEW (``entity_setup_summary``). The views are Postgres SQL
+#: and exist only in the schema-built database, so the SQLite pass skips these; the Postgres
+#: pass (MINTY_TEST_PG_URI; CI runs both) is where they run.
+requires_postgres = pytest.mark.skipif(
+    not _on_postgres(), reason="reads a Postgres view; runs in the Postgres pass"
 )
 
 
@@ -116,20 +130,44 @@ def currencies(db):
 
 
 @pytest.fixture
+def cash_catalogue(db, currencies):
+    """Denominations per currency: three active HKD rows plus a retired one, two JPY rows.
+
+    Returns ``{code: [active CashInfo, ...]}``; the retired HKD $1000 note is not in it.
+    """
+    rows = {"HKD": [], "JPY": []}
+    for code, kind, value, order, active in (
+        ("HKD", "note", "100.00", 1, True),
+        ("HKD", "note", "10.00", 2, True),
+        ("HKD", "coin", "1.00", 3, True),
+        ("HKD", "note", "1000.00", 0, False),
+        ("JPY", "note", "1000.00", 1, True),
+        ("JPY", "coin", "100.00", 2, True),
+    ):
+        row = CashInfo.objects.create(
+            id=uuid.uuid4(), currency_id=currencies[code].id, type=kind,
+            cash_value=Decimal(value), display_order=order, is_active=active,
+        )
+        if active:
+            rows[code].append(row)
+    return rows
+
+
+@pytest.fixture
 def countries(db):
     """The country registry rows the tests name. ``get_or_create`` so a test that also uses
     the ``entity`` fixture (which needs HK to satisfy ``fk_entities_country`` on Postgres)
-    does not insert HK twice."""
-    for code, alpha3, name, active, order in (
-        ("HK", "HKG", "Hong Kong", True, 1),
-        ("AU", "AUS", "Australia", True, 999),
-        ("AF", "AFG", "Afghanistan", True, 999),
-        ("XX", "XXX", "Nowhere", False, 999),
+    does not insert HK twice. Afghanistan has no dial code, so the "" case is covered."""
+    for code, alpha3, name, active, order, phone_code in (
+        ("HK", "HKG", "Hong Kong", True, 1, "+852"),
+        ("AU", "AUS", "Australia", True, 999, "+61"),
+        ("AF", "AFG", "Afghanistan", True, 999, None),
+        ("XX", "XXX", "Nowhere", False, 999, None),
     ):
-        CountryInfo.objects.get_or_create(
+        CountryInfo.objects.update_or_create(
             country_code=code,
             defaults={"alpha3_code": alpha3, "country_name_en": name,
-                      "is_active": active, "display_order": order},
+                      "is_active": active, "display_order": order, "phone_code": phone_code},
         )
 
 

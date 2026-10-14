@@ -64,8 +64,16 @@ never a real one (see "Never let a test navigate to step 9" below).
 - [ ] `GET/POST /sales-methods` reconciles against the submitted name list — rows already
       present are reused, not deleted-and-reinserted (check ids are stable across two saves
       with overlapping names).
-- [ ] `POST /opening-balance` writes `opening_balance` with `cash_addition = 0` on the
-      onboarding draft — not on any already-finalized report.
+- [ ] `POST /opening-balance` writes `opening_balance` and `start_date` on
+      `entity_pettycash_settings` and creates no `report` row; once a report is posted it
+      answers 409; with no currency, or more decimals than the currency allows, 400.
+- [ ] `POST /create` / `PUT /entity/{id}` with `timezone` saves it to `entities.timezone`;
+      `"Mars/Olympus"` is 400. A create naming only a country takes that country's currency.
+- [ ] `POST /finalize` with Petty Cash on and no Xero (or fewer than 6 accounts / 3 contacts)
+      answers 409 with `missing`, and the company is still `onboarding`; Payment Request needs
+      a ticked bill code. With everything set it goes live as before.
+- [ ] `POST /invite/resend` sends the invitation again; a second press within the cooldown is
+      429 with `retry_after`.
 - [ ] `GET/POST /account-codes`, `POST /contacts`, `POST /contacts/create`, `GET/POST
       /bill-codes` all operate over rows Minty already synced from Xero — none of them talk
       to Xero directly from here.

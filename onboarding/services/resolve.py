@@ -28,6 +28,7 @@ version is not carried over -- the protection is not dropped, it moved into the 
 
 import re
 import uuid as _uuid
+from zoneinfo import available_timezones
 
 from shared_models.models import CountryInfo, CurrencyInfo
 
@@ -95,22 +96,82 @@ def currency_id(value) -> str:
     return str(row.id) if row else ""
 
 
-def contact_phone(value) -> tuple[str | None, str]:
-    """Payload value -> ``(stored phone or None, error message)``.
+#: National-number lengths held exactly. Hong Kong only for now: it is the one market Minty
+#: sells in (the user, 2026-10-12) - add a code when its market opens, not before. Every other
+#: code gets E.164's own bounds: at least 4 national digits, at most 15 digits in all. The
+#: wizard's ``PHONE_LENGTHS`` (lib/validation.ts) is the same table -- change them together.
+PHONE_LENGTHS = {"852": 8}
 
-    Digits only, mirroring the wizard, which strips punctuation before sending. The length
-    is re-checked here rather than trusted: this is a plain JSON endpoint, so the client's
-    ``maxLength`` is a convenience and not a control.
+#: Dial codes where a leading 0 is part of the number (Italy and the Vatican, San Marino).
+#: Everywhere else a leading 0 is the domestic trunk prefix, which E.164 drops.
+KEEPS_LEADING_ZERO = {"39", "378"}
+
+#: The wizard words each failure itself; this is the API's one generic answer.
+PHONE_INVALID = "Please check the phone number and its country code."
+
+_PHONE_SHAPE = re.compile(r"\+[0-9 ()\-.]+")
+
+
+#: ``entities.timezone`` is VARCHAR(30); a few IANA names are longer and cannot be stored.
+TIMEZONE_MAX = 30
+TIMEZONE_INVALID = "That timezone isn't one I recognise."
+
+
+def timezone(value) -> tuple[str | None, str]:
+    """The browser's IANA zone (``Intl.DateTimeFormat().resolvedOptions().timeZone``) ->
+    ``(zone or None, error message)``.
+
+    Step 1 sends it with no field on screen, so an empty value is simply "not sent" (None,
+    nothing written). Anything sent must be a real IANA name that fits the column - checked
+    here, not trusted, because this is a plain JSON endpoint.
+    """
+    text = (value or "").strip()
+    if not text:
+        return None, ""
+    if len(text) > TIMEZONE_MAX or text not in available_timezones():
+        return None, TIMEZONE_INVALID
+    return text, ""
+
+
+def contact_phone(value) -> tuple[str | None, str]:
+    """Payload value -> ``(E.164 phone or None, error message)``.
+
+    The wizard sends ``+<dial code><national number>``; spaces, dashes, dots and brackets
+    are tolerated and dropped. The dial code must be one ``country_info.phone_code`` holds
+    (E.164 codes are prefix-free, so at most one matches), and the length is re-checked
+    here rather than trusted: this is a plain JSON endpoint, so the client's check is a
+    convenience and not a control. Stored as ``+85291234567``.
 
     An empty value returns None, and the caller writes NULL -- that is how a user who
     deletes their number actually gets it cleared, rather than storing "".
     """
-    digits = "".join(ch for ch in (value or "") if ch.isdigit())
-    if not digits:
+    text = (value or "").strip()
+    if not text:
         return None, ""
-    if not 8 <= len(digits) <= 11:
-        return None, "Phone number must be 8-11 digits."
-    return digits, ""
+    if not _PHONE_SHAPE.fullmatch(text):
+        return None, PHONE_INVALID
+    digits = "".join(ch for ch in text if ch.isdigit())
+    codes = {
+        code.strip().lstrip("+")
+        for code in CountryInfo.objects.exclude(phone_code__isnull=True)
+        .values_list("phone_code", flat=True)
+        .distinct()
+        if code.strip().lstrip("+")
+    }
+    dial = next((digits[:n] for n in (3, 2, 1) if digits[:n] in codes), None)
+    if dial is None:
+        return None, PHONE_INVALID
+    national = digits[len(dial):]
+    if national.startswith("0") and dial not in KEEPS_LEADING_ZERO:
+        national = national[1:]
+    expected = PHONE_LENGTHS.get(dial)
+    if expected is not None:
+        ok = len(national) == expected
+    else:
+        ok = len(national) >= 4 and len(dial) + len(national) <= 15
+    if not ok:
+        return None, PHONE_INVALID
+    return f"+{dial}{national}", ""
 
 
 #: One "@", something either side, a dot in the domain, PRINTABLE ASCII ONLY -- the wizard's

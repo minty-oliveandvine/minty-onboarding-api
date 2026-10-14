@@ -105,6 +105,13 @@ def test_country_id_duplicates_the_code(client, countries):
         assert row["country_id"] == row["country_code"]
 
 
+@pytest.mark.django_db
+def test_countries_carry_their_dial_code(client, countries):
+    """The Phone Number picker's source: "+852" as stored, "" for a row without one."""
+    by_code = {c["country_code"]: c["phone_code"] for c in client.get(COUNTRIES).json()["countries"]}
+    assert by_code == {"HK": "+852", "AU": "+61", "AF": ""}
+
+
 # ---------------------------------------------------------------------------
 # The price catalog
 # ---------------------------------------------------------------------------
@@ -286,3 +293,23 @@ def test_largest_bundle_wins(client, auth, plans, modules, policy):
     body = client.get(PLANS, **auth).json()
     assert body["bundle_codes"] == ["PAYMENT_REQUEST", "PAYROLL", "PETTY_CASH"]
     assert body["bundle_amount"] == 500.0
+
+
+# ---------------------------------------------------------------------------
+# Step 1 preselects the country's currency; step 5 uses the currency's decimals (2026-10-13)
+# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+def test_countries_carry_their_currency(client, countries, currencies):
+    from shared_models.models import CountryInfo
+
+    CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
+    by_code = {c["country_code"]: c for c in client.get(COUNTRIES).json()["countries"]}
+    assert by_code["HK"]["currency_id"] == str(currencies["HKD"].id)
+    assert by_code["AU"]["currency_id"] is None
+
+
+@pytest.mark.django_db
+def test_currencies_carry_their_decimal_places(client, currencies):
+    by_code = {c["iso_code"]: c for c in client.get(CURRENCIES).json()["currencies"]}
+    assert by_code["HKD"]["decimal_places"] == 2
+    assert by_code["JPY"]["decimal_places"] == 0

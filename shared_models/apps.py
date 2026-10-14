@@ -29,6 +29,8 @@ class SharedModelsConfig(AppConfig):
             models.UserEntity,
             models.CountryInfo,
             models.CurrencyInfo,
+            models.CashInfo,
+            models.EntityCashSetting,
             models.EntityFunction,
             models.EntityFunctionMap,
             models.BillingPlan,

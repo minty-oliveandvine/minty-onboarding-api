@@ -70,6 +70,13 @@ class DiscrepancyType(models.TextChoices):
     SHORT = "short"
 
 
+class CashType(models.TextChoices):
+    """``cash_type`` — a denomination in ``cash_info`` is a note or a coin."""
+
+    COIN = "coin"
+    NOTE = "note"
+
+
 class InvitationStatus(models.TextChoices):
     """``invitation_status`` — ``revoked`` is what the code called ``cancelled``."""
 

@@ -44,47 +44,30 @@ from onboarding.services import invites as invites_service
 from onboarding.services import sales_methods
 from onboarding.services import steps as step_defs
 from onboarding.services.plans import MODULE_BILL, MODULE_CODES, MODULE_PETTY_CASH
-from shared_models.models import (
-    Entity,
-    EntityFunction,
-    EntityFunctionMap,
-    EntityPettycashSettings,
-    Report,
-)
+from shared_models.models import Entity, EntitySetupSummary
 
 logger = logging.getLogger("minty-onboarding")
 
 
-def enabled_modules(entity_id: str) -> list[str]:
-    """Module codes enabled for the entity, in ``MODULE_CODES`` order.
+def enabled_modules(setup) -> list[str]:
+    """Module codes enabled for the entity, in ``MODULE_CODES`` order, from its
+    ``entity_setup_summary`` row (None -> no modules).
 
-    FAIL CLOSED: no map row means OFF. This is worth stating because Flask's version of
-    this had drifted and the bug it caused is instructive -- it fell back to the catalog's
-    ``is_active`` where no map row existed, and ``is_active`` defaults True, so a brand-new
-    entity answered "both modules enabled". ``_derive_current_step`` then skipped
-    STEP_MODULE and landed the user past the very selection they had not made.
-
-    The catalog's ``is_active`` says whether a module is OFFERED at all, never who may use
-    it. Only a map row grants a module, and its absence means nothing has granted one.
+    FAIL CLOSED: the view counts a module on only where its map row says ``is_enabled``; no
+    row is OFF. Worth stating because Flask's version of this had drifted - it fell back to
+    the catalog's ``is_active`` (default True), so a brand-new entity answered "both modules
+    enabled" and ``derive_current_step`` skipped STEP_MODULE. The catalog's ``is_active``
+    says whether a module is OFFERED, never who may use it.
     """
-    catalog = {
-        fn.function_code: fn.id
-        for fn in EntityFunction.objects.filter(function_code__in=MODULE_CODES)
-    }
-    if not catalog:
+    if setup is None:
         return []
+    on = {MODULE_PETTY_CASH: setup.pettycash_module_enabled, MODULE_BILL: setup.bill_module_enabled}
+    return [code for code in MODULE_CODES if on.get(code)]
 
-    enabled_ids = {
-        row.entity_function_id: row.is_enabled
-        for row in EntityFunctionMap.objects.filter(
-            entity_id=entity_id, entity_function_id__in=list(catalog.values())
-        )
-    }
-    return [
-        code
-        for code in MODULE_CODES
-        if code in catalog and enabled_ids.get(catalog[code], False)
-    ]
+
+def setup_summary(entity_id) -> EntitySetupSummary | None:
+    """The company's ``entity_setup_summary`` row (a Postgres view - see the model)."""
+    return EntitySetupSummary.objects.filter(entity_id=entity_id).first()
 
 
 def _reconcile_xero_disconnect(entity: Entity) -> None:
@@ -123,23 +106,19 @@ def _reconcile_xero_disconnect(entity: Entity) -> None:
     entity.save(update_fields=["status", "xero_org_id", "connected_by_user_id"])
 
 
-def _xero_state(entity: Entity) -> dict:
-    """Xero connection picture for the wizard, from the entities row."""
-    _reconcile_xero_disconnect(entity)
+def _xero_state(setup) -> dict:
+    """Xero connection picture for the wizard, from the setup row (read after
+    ``_reconcile_xero_disconnect``, so a revoked connection already reads as gone)."""
     return {
-        "connected": bool(entity.xero_org_id),
-        "org": entity.xero_tenant_name or "",
+        "connected": bool(setup and setup.xero_org_linked),
+        "org": (setup.xero_tenant_name if setup else None) or "",
     }
 
 
-def _account_codes_done(entity_id: str) -> bool:
-    """True once the petty-cash account-code mapping has been saved (Step 6).
-
-    A non-empty ``pettycash_account_id`` marks the step complete -- it is the core mapping,
-    and the row exists before it is filled in.
-    """
-    row = EntityPettycashSettings.objects.filter(entity_id=entity_id).first()
-    return bool(row and row.pettycash_account_id)
+def _account_codes_done(setup) -> bool:
+    """True once the petty-cash account-code mapping has been saved (Step 6): the core
+    ``pettycash_account_id`` is set."""
+    return bool(setup and setup.pettycash_account_id)
 
 
 def _sales_methods_state(entity_id: str) -> dict:
@@ -163,31 +142,25 @@ def _sales_methods_state(entity_id: str) -> dict:
     return sales_methods.grouped_methods(entity_id)
 
 
-def _opening_balance_state(entity_id: str) -> dict | None:
-    """Saved petty-cash opening balance (Step 5), or None if no opening draft exists.
+def _opening_balance_state(setup) -> dict | None:
+    """Saved petty-cash opening balance (Step 5), or None if none has been saved.
 
-    Reads the earliest ``status='draft'`` report for the entity. Onboarding stores the
-    starting cash in ``opening_balance`` with ``cash_addition`` 0; both come back so the
-    frontend can bind to either.
+    ``opening_balance`` and ``start_date`` from the setup row (they live on
+    ``entity_pettycash_settings``). The starting cash is an opening balance, never an
+    addition, so ``cash_addition`` is always 0 and ``adjusted_opening_balance`` equals the
+    amount; all of them come back so the frontend can bind to either.
 
-    The money columns are ``numeric``; the wizard's JSON gets numbers, not strings.
+    The money column is ``numeric``; the wizard's JSON gets numbers, not strings.
     """
-    draft = (
-        Report.objects.filter(entity_id=entity_id, status="draft")
-        .order_by("transaction_date")
-        .first()
-    )
-    if draft is None:
+    if setup is None or setup.start_date is None:
         return None
 
-    def _num(value):
-        return float(value) if value is not None else None
-
+    amount = float(setup.opening_balance) if setup.opening_balance is not None else None
     return {
-        "opening_date": draft.transaction_date.isoformat() if draft.transaction_date else None,
-        "opening_balance": _num(draft.opening_balance),
-        "cash_addition": _num(draft.cash_addition),
-        "adjusted_opening_balance": _num(draft.adjusted_opening_balance),
+        "opening_date": setup.start_date.isoformat(),
+        "opening_balance": amount,
+        "cash_addition": 0.0,
+        "adjusted_opening_balance": amount,
     }
 
 
@@ -222,9 +195,13 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
     The caller has already established membership (core.permissions.entity_for_member), so
     this does no access checking of its own beyond the per-permission invite gate.
     """
-    modules = enabled_modules(entity.id)
-    xero = _xero_state(entity)
-    account_codes_done = _account_codes_done(entity.id)
+    # The live Xero check may clear a revoked connection, so it runs before the one read of
+    # the entity's setup row (entity_setup_summary) that the rest of the picture comes from.
+    _reconcile_xero_disconnect(entity)
+    setup = setup_summary(entity.id)
+    modules = enabled_modules(setup)
+    xero = _xero_state(setup)
+    account_codes_done = _account_codes_done(setup)
     current_step = derive_current_step(entity, modules, xero, account_codes_done)
 
     return {
@@ -251,7 +228,7 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
         "modules": modules,
         "xero": xero,
         "sales_methods": _sales_methods_state(entity.id),
-        "opening_balance": _opening_balance_state(entity.id),
+        "opening_balance": _opening_balance_state(setup),
         # Best-effort: a permission gap must not fail the whole resume read. See
         # services/invites.py::list_pending_best_effort.
         "invites": invites_service.list_pending_best_effort(user_id, entity.id),

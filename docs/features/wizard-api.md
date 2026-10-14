@@ -13,14 +13,18 @@ Flask are in the repo `README.md`.
 
 `GET /server-time` — "today" in Hong Kong, server-authoritative, so a date the wizard
 defaults to never comes from the browser's clock. `GET /currencies`, `GET /countries` —
-the registries Step 1 needs (`currency_info`, `country_info`), read from the database.
+the registries Step 1 needs (`currency_info`, `country_info`), read from the database. Each
+currency carries `decimal_places` (Step 5 types the opening balance in it; JPY is 0) and each
+country its own `currency_id` (or null), which Step 1 preselects when the country is picked.
 `GET /plans` — the module price list for Step 2's summary, **from `billing_plan`, not
 Stripe** (`services/plans.py`).
 
 ## Resume: `/state` and `/saved-step` (`services/state.py`, `steps.py`)
 
 **The `entities` row is the source of truth, not the browser.** `GET /state?entity_id=`
-rebuilds the whole picture from the database — entity, name, country, currency, phone,
+rebuilds the whole picture from the database — modules, Xero, the Step 6 flag and the
+opening balance from ONE `entity_setup_summary` row (a Postgres view, so the tests that read
+`/state` run in the Postgres pass only; the live Xero revoke check runs first) — entity, name, country, currency, phone,
 email, status, `modules`, `xero` (connected? tenant), `sales_methods`, `opening_balance`,
 `invites` (best-effort: a cashier who may not list invitations still gets a state),
 `saved_step`, `current_step`, `max_reached` — so a cold resume
@@ -45,10 +49,24 @@ Step ids: 1 Basic, 2 Modules, 3 Invite, 4 Accounting, 5 Sales, 6 Account code, 7
 methods: **Cash only** — no electronic or delivery method is seeded, so the wizard's lists start
 empty until its Auto Fill);
 idempotent on (member, name, `status = onboarding`) so a retry resumes the abandoned row
-(`created: false`). `PUT /entity/{id}` edits an in-progress one. Country and currency
+(`created: false`). `PUT /entity/{id}` edits an in-progress one. Both take `timezone` -
+the browser's IANA zone, sent with no field on screen; unknown or longer than the 30-character
+column is 400 (`resolve.timezone`). Create derives the currency from the country when none is
+sent (as edit always has) and sets the creator's `user_entity.joined_at`. Country and currency
 are **resolved against the registries** (`resolve.country_code` accepts alpha-2, alpha-3
 or a unique name; `currency_id` only queries once the value is a uuid) and never stored
 unvalidated — they are foreign keys; phone and email are checked the way the wizard does.
+The phone (`resolve.contact_phone`, since 2026-10-12) is **E.164**: `+<dial code><number>`,
+spaces, dashes, dots and brackets dropped, the domestic trunk 0 dropped (except +39/+378), and
+the code must be a `country_info.phone_code` (so a database without
+`Minty/docs/schema/seed_country_phone_codes.sql` refuses every number). Only Hong Kong's length
+is exact: 8 digits for +852, the one market Minty sells in (`PHONE_LENGTHS`, the wizard's table,
+so change both together; add a code when its market opens). Every other code: at least 4
+national digits and at most 15 in all. Stored as
+`+85291234567`. Any miss is a 400 `"Please check the phone number and its country code."`. A
+digits-only value (the pre-2026-10-12 shape) is refused. Stored rows are not rewritten: the
+wizard splits an old one under the company's Country when Step 1 opens. `GET /countries`
+carries `phone_code` ("+852", "" when the row has none).
 The business email (`resolve.business_email`, `POST /create` and `PUT /entity/{id}`) is
 English only since 2026-10-01: `resolve.EMAIL_RE` = printable ASCII minus "@", one "@", a dot
 in the domain (still shallow: `a+b@sub.domain.museum` passes). A non-ASCII address is a 400
@@ -68,18 +86,24 @@ account shares it. Blank means the payer's own address is used instead.
 - `GET/POST /sales-methods` — the electronic and delivery methods, **reconciled** to the
   submitted name lists, never delete-and-reinsert (`services/sales_methods.py`; catalogue
   rows are shared and get-or-created; permission `SALES_METHOD_CREATE`).
-- `POST /opening-balance` — the starting cash, written as `opening_balance` with
-  `cash_addition = 0` on the entity's onboarding draft (`services/opening_balance.py` —
-  every branch there is load-bearing; read it before touching it).
+- `POST /opening-balance` — the starting cash and the date reporting starts, saved as
+  `entity_pettycash_settings.opening_balance` / `start_date` (the row is created if Step 6
+  has not made it yet; `services/opening_balance.py`). No report is written: Minty's first
+  report opens at the amount, defaults to the date and may not start before it. Refused
+  with 409 once any report is posted; a future date, a negative or non-numeric amount, an
+  amount finer than the currency's `decimal_places`, or a company with no currency yet is
+  400. Flask's fallback (`save_opening_balance`) does the same.
 - `GET/POST /account-codes`, `POST /contacts`, `POST /contacts/create` (a new Xero
   contact), `GET/POST /bill-codes` — the expense accounts, the petty-cash contact mapping
   and the bills' account codes, over the rows Minty synced.
 
 ## Invitations (`services/invites.py`)
 
-`GET /invite` lists pending invitations (`USER_VIEW_ALL`), `POST /invite/cancel` marks
-one `revoked` (never deleted). **Sending stays in Flask** (`POST /invite` proxies) — mail
-has no single-writer constraint, but the templates and the accept flow live there.
+`GET /invite` lists pending invitations (`USER_VIEW_ALL`) with `expires_at` and `expired`
+(Step 3 shows "Expires in N days" / "Expired"), `POST /invite/cancel` marks one `revoked`
+(never deleted). **Sending stays in Flask** (`POST /invite` and `POST /invite/resend` proxy -
+resend gives a fresh link and expiry, with Flask's cooldown as a 429 `{error, retry_after}`)
+— mail has no single-writer constraint, but the templates and the accept flow live there.
 
 ## Proxied to Flask (`api_modules.py`, `api_billing.py`, `core/minty_client.py`)
 
@@ -100,7 +124,12 @@ the same 502/504 answers.
 ## Finalize (`api_billing.py`, implemented here since 2026-10-06)
 
 `POST /finalize {entity_id}` — called on arrival at All Set. Membership via
-`entity_for_member` (400/403/404). A company still `onboarding` flips to `connected` (a Xero
+`entity_for_member` (400/403/404). First the setup rule (`setup_gaps`, from
+`entity_setup_summary`, only when a module is on): Petty Cash needs Xero plus all six accounts
+and three contacts; Payment Request needs Xero plus at least one ticked bill account code, and
+a default code (if set) that is ticked. Anything missing is a 409 `{"error", "missing": [{"step",
+"message"}]}` and the company stays `onboarding` - All Set lists each with a way back to its
+step. Then a company still `onboarding` flips to `connected` (a Xero
 org is linked) or `disconnected`; then **every** finalize calls the subscription API's
 `POST /api/onboarding/trials/start {entity_id}`, so a retry reaches it. A non-200 answer fails
 finalize with that service's own status and `error` sentence (the company stays live; the

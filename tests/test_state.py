@@ -10,6 +10,7 @@ would reveal it.
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -24,7 +25,11 @@ from shared_models.models import (
     SaleInfo,
     UserEntity,
 )
-from tests.conftest import make_token
+from tests.conftest import make_token, requires_postgres
+
+# /state reads the entity_setup_summary VIEW (Postgres SQL), so this module runs in the
+# Postgres pass only (MINTY_TEST_PG_URI; CI runs both).
+pytestmark = requires_postgres
 
 STATE = "/api/onboarding/state"
 SAVED_STEP = "/api/onboarding/saved-step"
@@ -444,7 +449,7 @@ def test_no_xero_org_does_not_call_xero_at_all(client, auth, entity, modules, mo
 
 
 # ---------------------------------------------------------------------------
-# Sales methods and the opening draft
+# Sales methods and the opening balance
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
 def test_sales_methods_group_by_type_and_respect_display_order(
@@ -476,30 +481,36 @@ def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entit
 
 
 @pytest.mark.django_db
-def test_opening_balance_is_null_with_no_draft(client, auth, entity, modules):
+def test_opening_balance_is_null_until_saved(client, auth, entity, modules):
+    assert state_of(client, auth, entity)["opening_balance"] is None
+    # A row Step 6 created with no start date is still "not saved".
+    EntityPettycashSettings.objects.create(entity_id=entity.id)
     assert state_of(client, auth, entity)["opening_balance"] is None
 
 
 @pytest.mark.django_db
-def test_opening_balance_reads_the_earliest_draft(client, auth, entity, modules):
-    """Earliest by transaction_date -- the opening one, not the most recent."""
-    for offset, amount in [(5, 999.0), (0, 500.0)]:
-        Report.objects.create(
-            id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
-            transaction_date=date.today() + timedelta(days=offset),
-            opening_balance=amount, cash_addition=0.0,
-        )
-    opening = state_of(client, auth, entity)["opening_balance"]
-    assert opening["opening_balance"] == 500.0
-    assert opening["cash_addition"] == 0.0
+def test_opening_balance_reads_the_settings_row(client, auth, entity, modules):
+    start = date.today() - timedelta(days=4)
+    EntityPettycashSettings.objects.create(
+        entity_id=entity.id, opening_balance=Decimal("500.00"), start_date=start
+    )
+    assert state_of(client, auth, entity)["opening_balance"] == {
+        "opening_date": start.isoformat(),
+        "opening_balance": 500.0,
+        "cash_addition": 0.0,
+        "adjusted_opening_balance": 500.0,
+    }
 
 
 @pytest.mark.django_db
-def test_a_posted_report_is_not_the_opening_draft(client, auth, entity, modules):
-    Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status="submitted",
-        transaction_date=date.today(), opening_balance=123.0, cash_addition=0.0,
-    )
+def test_a_report_is_not_the_opening_balance(client, auth, entity, modules):
+    """A draft seeded before the settings columns were used is not read back."""
+    for status in ("draft", "submitted"):
+        Report.objects.create(
+            id=str(uuid.uuid4()), entity_id=entity.id, status=status,
+            transaction_date=date.today() - timedelta(days=1 if status == "draft" else 2),
+            opening_balance=123.0, cash_addition=0.0,
+        )
     assert state_of(client, auth, entity)["opening_balance"] is None
 
 

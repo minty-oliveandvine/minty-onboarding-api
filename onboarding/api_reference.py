@@ -82,13 +82,15 @@ def currencies(request):
     rows = (
         CurrencyInfo.objects.filter(is_active=True)
         .order_by("currency_name")
-        .values_list("id", "currency_name", "currency_code")
+        .values_list("id", "currency_name", "currency_code", "decimal_places")
     )
     return {
         "currencies": [
-            # str(): see the uuid trap in the module header.
-            {"currency_id": str(cid), "currency_name": name, "iso_code": code}
-            for cid, name, code in rows
+            # str(): see the uuid trap in the module header. decimal_places shapes the opening
+            # balance field (step 5): JPY takes whole amounts.
+            {"currency_id": str(cid), "currency_name": name, "iso_code": code,
+             "decimal_places": places}
+            for cid, name, code, places in rows
         ]
     }
 
@@ -104,16 +106,27 @@ def countries(request):
     Ordered by ``display_order`` then name, so common countries can be floated above the
     alphabetical tail by setting a value below the 999 default. Ties fall back to
     alphabetical, which is what every row does while the default stands.
+
+    ``phone_code`` (``"+852"``) feeds the Phone Number picker; it is ``""`` for a row without
+    one, and such a country is simply not offered there. ``currency_id`` is the country's own
+    currency (or null): picking the country preselects it.
     """
     rows = (
         CountryInfo.objects.filter(is_active=True)
         .order_by("display_order", "country_name_en")
-        .values_list("country_code", "country_name_en")
+        .values_list("country_code", "country_name_en", "phone_code", "currency_id")
     )
     return {
         "countries": [
-            {"country_id": code, "country_name_en": name, "country_code": code}
-            for code, name in rows
+            {
+                "country_id": code,
+                "country_name_en": name,
+                "country_code": code,
+                "phone_code": (phone_code or "").strip(),
+                # The country's currency: picking the country preselects it in step 1.
+                "currency_id": str(currency) if currency else None,
+            }
+            for code, name, phone_code, currency in rows
         ]
     }
 

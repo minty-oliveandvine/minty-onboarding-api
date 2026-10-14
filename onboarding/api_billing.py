@@ -26,12 +26,14 @@ privilege of its own -- there is no service credential here to scope wrongly.
 
 import logging
 
-from ninja import Body, Router
+from ninja import Body, Router, Status
 
 from core import minty_client, subscription_client
 from core.exceptions import UpstreamError
 from core.permissions import entity_for_member, require_entity_id
+from onboarding.services import state as state_service
 from shared_models.enums import EntityStatus
+from shared_models.models import EntityFunctionMap
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -109,7 +111,41 @@ def post_billing_authorize(request, payload: dict = Body(default={})):
 
 
 # --- Finishing, and disconnecting -----------------------------------------------------
-@billing_router.post("/finalize")
+def setup_gaps(entity) -> list[dict]:
+    """What the company's chosen modules still need before it can go live, as
+    ``[{"step": <wizard step>, "message": ...}]`` - empty when nothing is missing.
+
+    Petty Cash needs Xero plus the six accounts and three contacts publishing posts with;
+    Payment Request needs Xero plus at least one ticked bill account code, and a default code
+    (if one is set) that is ticked. Read from ``entity_setup_summary`` (a Postgres view), and
+    only when a module is on - a company with none has nothing to check.
+    """
+    if not EntityFunctionMap.objects.filter(entity_id=entity.id, is_enabled=True).exists():
+        return []
+    setup = state_service.setup_summary(entity.id)
+    if setup is None:
+        return []
+    pettycash, bills = setup.pettycash_module_enabled, setup.bill_module_enabled
+    gaps = []
+    if (pettycash or bills) and not setup.xero_org_linked:
+        gaps.append({"step": 4, "message": "Connect Xero."})
+        return gaps  # nothing below can be mapped without it
+    if pettycash and setup.pettycash_accounts_set < setup.pettycash_accounts_total:
+        gaps.append({"step": 6, "message": (
+            f"Choose the petty cash account codes "
+            f"({setup.pettycash_accounts_set} of {setup.pettycash_accounts_total} set).")})
+    if pettycash and setup.pettycash_contacts_set < setup.pettycash_contacts_total:
+        gaps.append({"step": 7, "message": (
+            f"Choose the petty cash contacts "
+            f"({setup.pettycash_contacts_set} of {setup.pettycash_contacts_total} set).")})
+    if bills and setup.bill_accounts_set < 1:
+        gaps.append({"step": 8, "message": "Tick at least one payment request account code."})
+    if bills and setup.bill_accounts_default_inactive:
+        gaps.append({"step": 8, "message": "Make the default account code one of the ticked codes."})
+    return gaps
+
+
+@billing_router.post("/finalize", response={200: dict, 409: dict})
 def post_finalize(request, payload: dict = Body(default={})):
     """Body ``{entity_id}`` -> ``{"status": "success", "trial_end": iso8601 | null}``.
 
@@ -124,8 +160,20 @@ def post_finalize(request, payload: dict = Body(default={})):
 
     A failed trial start FAILS finalize with the subscription API's own status and sentence.
     The company stays live (half 1 is not undone) and Try again redoes half 2.
+
+    Before either half: a company whose chosen modules are not set up (``setup_gaps``) is
+    refused with 409 ``{"error", "missing": [{"step", "message"}]}`` and stays ``onboarding``
+    - going live half set up only moves the failure to its first publish.
     """
     entity = entity_for_member(request.auth_user_id, (payload or {}).get("entity_id"))
+
+    gaps = setup_gaps(entity)
+    if gaps:
+        logger.info("onboarding: finalize of entity %s refused: %s", entity.id, gaps)
+        return Status(409, {
+            "error": "Finish setting up first: " + " ".join(g["message"] for g in gaps),
+            "missing": gaps,
+        })
 
     if entity.status == EntityStatus.ONBOARDING:
         entity.status = (

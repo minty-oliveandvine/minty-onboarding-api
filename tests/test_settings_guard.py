@@ -71,3 +71,28 @@ def _restore_settings_module():
     # Put the test settings module back for the rest of the suite.
     sys.modules.pop("config.settings", None)
     importlib.import_module("config.settings_test")
+
+
+def test_cors_defaults_to_the_wizard_origin(monkeypatch):
+    for k in ("CORS_ALLOWED_ORIGINS", "ONBOARDING_WEB_URL"):
+        monkeypatch.delenv(k, raising=False)
+    mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
+    assert mod.CORS_ALLOWED_ORIGINS == ["http://localhost:3030"]
+    mod = _load_settings(monkeypatch, {"APP_ENV": "development", "ONBOARDING_WEB_URL": "https://onboarding.example/"})
+    assert mod.CORS_ALLOWED_ORIGINS == ["https://onboarding.example"]
+
+
+def test_preview_origins_are_off_unless_set(monkeypatch):
+    monkeypatch.delenv("PREVIEW_ORIGIN_REGEX", raising=False)
+    assert _load_settings(monkeypatch, {"APP_ENV": "development"}).CORS_ALLOWED_ORIGIN_REGEXES == []
+    regex = r"^https://pr-[a-z0-9-]+-onboarding\.dailyminty\.com$"
+    mod = _load_settings(monkeypatch, {
+        "APP_ENV": "production", "SECRET_KEY": "x" * 64,
+        "SUBSCRIPTION_API_URL": "https://subscription.example", "PREVIEW_ORIGIN_REGEX": regex,
+    })
+    assert mod.CORS_ALLOWED_ORIGIN_REGEXES == [regex]
+
+
+def test_a_loose_preview_regex_refuses_to_boot(monkeypatch):
+    with pytest.raises(ImproperlyConfigured, match="PREVIEW_ORIGIN_REGEX"):
+        _load_settings(monkeypatch, {"APP_ENV": "development", "PREVIEW_ORIGIN_REGEX": ".*"})

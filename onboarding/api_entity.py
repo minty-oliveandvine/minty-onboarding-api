@@ -18,10 +18,10 @@ Not a skipped assignment. Flask's comment records why: skipping left ``country_c
 while the currency (whose resolver also accepts names) still saved, so the two silently
 diverged and the 200 gave the wizard no way to notice.
 
-ASYMMETRY WORTH KNOWING: the update derives a currency from the country when none is given,
-and sets ``currency_format`` from the currency's symbol. Create does NEITHER. That is Flask's
-behaviour, ported as-is rather than tidied -- making create derive a currency would change
-what a created row contains, and this port is not the place to decide that.
+ASYMMETRY WORTH KNOWING: both derive a currency from the country when none is given, but only
+the update sets ``currency_format`` from the currency's symbol. That is Flask's behaviour,
+ported as-is rather than tidied. Create also REQUIRES a country and a currency (2026-10-19);
+the update does not, so a partial edit without a country stays valid.
 """
 
 import logging
@@ -105,8 +105,12 @@ def _resolved_currency(raw: str) -> str:
 def create_entity(request, payload: CreateEntityIn):
     """Create the company (Step 1). Answers 201 with ``{entity_id, name}``.
 
-    Order matters: the contact details are validated BEFORE the company is created, so a bad
-    phone or email is a 400 rather than a half-saved company the user then has to find again.
+    Order matters: everything is validated BEFORE the company is created, so a bad phone or
+    email -- or a missing country or currency -- is a 400 rather than a half-saved company the
+    user then has to find again.
+
+    Country and currency are required (owner, 2026-10-19: Step 1 no longer pre-fills Hong
+    Kong). A country alone is enough when the registry gives it a currency.
 
     201 is also returned when an abandoned in-progress company of the same name is reused --
     see entity_create.create_entity_for_user. From the wizard's point of view the outcome is
@@ -118,6 +122,10 @@ def create_entity(request, payload: CreateEntityIn):
     currency = _resolved_currency(
         _first(payload.currency_id, payload.currency, payload.currency_code)
     ) or _country_currency(country)
+    if not country:
+        raise OnboardingValidationError("Choose the company's country.")
+    if not currency:
+        raise OnboardingValidationError("Choose the company's currency.")
 
     phone, phone_error = resolve.contact_phone(payload.contact_phone)
     if phone_error:

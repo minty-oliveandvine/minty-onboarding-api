@@ -54,7 +54,11 @@ idempotent on (member, name, `status = onboarding`) so a retry resumes the aband
 (`created: false`). `PUT /entity/{id}` edits an in-progress one. Both take `timezone` -
 the browser's IANA zone, sent with no field on screen; unknown or longer than the 30-character
 column is 400 (`resolve.timezone`). Create derives the currency from the country when none is
-sent (as edit always has) and sets the creator's `user_entity.joined_at`. Country and currency
+sent (as edit always has) and sets the creator's `user_entity.joined_at`. **Create requires a
+country and a currency** (owner, 2026-10-19: Step 1 no longer pre-fills Hong Kong / HKD): no
+country is a 400 `"Choose the company's country."`, and no currency sent or derivable from the
+country's registry row is a 400 `"Choose the company's currency."` — both before the company is
+created. `PUT /entity/{id}` does not require them (a partial edit stays valid). Country and currency
 are **resolved against the registries** (`resolve.country_code` accepts alpha-2, alpha-3
 or a unique name; `currency_id` only queries once the value is a uuid) and never stored
 unvalidated — they are foreign keys; phone and email are checked the way the wizard does.

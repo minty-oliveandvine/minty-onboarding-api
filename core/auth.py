@@ -44,6 +44,7 @@ import logging
 
 import jwt
 from django.conf import settings
+from minty_shared import logctx
 from ninja.security import HttpBearer
 
 from shared_models.models import User
@@ -121,4 +122,5 @@ class OnboardingBearerAuth(HttpBearer):
 
         request.auth_user = user
         request.auth_user_id = user_id
+        logctx.bind(user=user_id)
         return user

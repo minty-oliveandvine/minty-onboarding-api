@@ -14,7 +14,7 @@ jobs:
   check:
     uses: minty-oliveandvine/.github/.github/workflows/python-api.yml@v1
     with:
-      python-version: "3.11"
+      python-version: "3.13"
       schema-name-test: tests/test_schema_name.py
     secrets:
       MINTY_READ_TOKEN: ${{ secrets.MINTY_READ_TOKEN }}

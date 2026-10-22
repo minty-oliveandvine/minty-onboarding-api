@@ -20,6 +20,8 @@ Note the order: membership is checked BEFORE existence. That is deliberate and w
 reading 403 against 404.
 """
 
+from minty_shared import logctx
+
 from core.exceptions import AccessDeniedError, NotFoundError, OnboardingValidationError
 from shared_models.models import Entity, UserEntity
 
@@ -63,4 +65,6 @@ def entity_for_member(user_id, entity_id) -> Entity:
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         raise NotFoundError("Entity not found")
+    # The company is on the log line only once the caller is known to belong to it.
+    logctx.bind(entity=entity.id)
     return entity

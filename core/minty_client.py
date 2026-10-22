@@ -37,6 +37,7 @@ import logging
 import requests
 from django.conf import settings
 from django.http import JsonResponse
+from minty_shared import logctx
 
 from core.exceptions import HOUSE_FALLBACK, UpstreamError
 
@@ -80,6 +81,7 @@ def forward(request, path: str, *, method: str = "POST", json=None, params=None,
     headers = {
         "Authorization": bearer_from(request),
         "Accept": "application/json",
+        **logctx.outgoing_headers(),
     }
     try:
         resp = requests.request(

@@ -35,6 +35,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import requests
 from django.conf import settings
+from minty_shared import logctx
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -81,7 +82,7 @@ def access_token_for(entity_id: str) -> str | None:
     try:
         resp = requests.post(
             url,
-            headers={"Authorization": f"Bearer {assertion}"},
+            headers={"Authorization": f"Bearer {assertion}", **logctx.outgoing_headers()},
             timeout=settings.XERO_TOKEN_SERVICE_TIMEOUT,
         )
     except requests.RequestException as exc:

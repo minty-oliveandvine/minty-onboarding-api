@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+from minty_shared.logctx import logging_config
 
 from config.dburl import database_url, parse_database_url
 from config.preview_origin import preview_origin_regexes
@@ -160,42 +161,14 @@ XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"
 XERO_TOKEN_SERVICE_TIMEOUT = 15
 
 # ---------------------------------------------------------------------------
-# Logging -- core + API formatters (same shape as minty-payment-request-api so the two
-# services' logs can be read side by side)
+# Logging - one line format for every Minty backend (minty_shared.logctx):
+#   <UTC>Z LEVEL [trace=…] [user=…|entity=…|step=…] message
 # ---------------------------------------------------------------------------
 LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(exist_ok=True)
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "core": {"()": "core.log_formatters.CoreFormatter"},
-        "api": {"()": "core.log_formatters.ApiFormatter"},
-    },
-    "handlers": {
-        "console_core": {"class": "logging.StreamHandler", "formatter": "core"},
-        "console_api": {"class": "logging.StreamHandler", "formatter": "api"},
-        "file_core": {
-            "class": "logging.FileHandler",
-            "filename": str(LOG_DIR / "core.log"),
-            "formatter": "core",
-        },
-        "file_api": {
-            "class": "logging.FileHandler",
-            "filename": str(LOG_DIR / "api.log"),
-            "formatter": "api",
-        },
-    },
-    "loggers": {
-        "minty-onboarding": {
-            "handlers": ["console_core", "file_core"],
-            "level": os.environ.get("LOG_LEVEL", "INFO"),
-        },
-        "minty-onboarding.http": {
-            "handlers": ["console_api", "file_api"],
-            "level": os.environ.get("LOG_LEVEL", "INFO"),
-            "propagate": False,
-        },
-    },
-}
+LOGGING = logging_config(
+    {"minty-onboarding": "core.log", "minty-onboarding.http": "api.log"},
+    log_dir=LOG_DIR,
+    no_propagate=["minty-onboarding.http"],
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+)

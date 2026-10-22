@@ -153,7 +153,9 @@ def test_a_non_list_is_rejected(client, auth, entity):
         client, auth, SALES,
         {"entity_id": entity.id, "electronic": "Visa", "delivery": []},
     )
-    assert resp.status_code == 400
+    # The schema refuses it: every API's envelope answers 422, naming the field.
+    assert resp.status_code == 422
+    assert "electronic" in resp.json()["fields"]
 
 
 @pytest.mark.django_db
@@ -382,7 +384,9 @@ def test_a_bad_date_is_400(client, auth, entity, value):
         client, auth, OPENING,
         {"entity_id": entity.id, "opening_date": value, "cash_addition": 10},
     )
-    assert resp.status_code == 400
+    # A null is refused by the schema (422, every API's envelope); a malformed string by the
+    # service's own rule (400).
+    assert resp.status_code == (422 if value is None else 400)
 
 
 @pytest.mark.django_db

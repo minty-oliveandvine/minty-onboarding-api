@@ -44,16 +44,13 @@ import logging
 
 import jwt
 from django.conf import settings
-from minty_shared import logctx
+from minty_shared import logctx, tokens
 from ninja.security import HttpBearer
 
 from shared_models.models import User
 
 logger = logging.getLogger("minty-onboarding")
 
-#: Seconds of clock disagreement tolerated on `iat` / `exp` between the minting host
-#: and this one. See the note at the decode call.
-CLOCK_SKEW_LEEWAY_SECONDS = 60
 
 #: The scope claim Flask puts on an onboarding token.
 ONBOARDING_SCOPE = "onboarding"
@@ -74,19 +71,11 @@ class OnboardingBearerAuth(HttpBearer):
 
     def authenticate(self, request, token):
         try:
-            payload = jwt.decode(
-                token,
-                settings.SECRET_KEY,
-                algorithms=["HS256"],
-                # Clock skew between the host that MINTS (Flask) and the host that
-                # VERIFIES (this service). PyJWT's default is zero: a token whose `iat`
-                # is one second ahead of this machine's clock is refused as "not yet
-                # valid", and the wizard reads that as an expired session. Measured on
-                # 2026-09-14: a developer laptop ran 6.5s ahead of Render. Sixty seconds
-                # is the conventional allowance and does not meaningfully extend the
-                # 60-minute lifetime.
-                leeway=CLOCK_SKEW_LEEWAY_SECONDS,
-            )
+            # HS256 with the 60 s clock skew every Minty backend allows (minty_shared.tokens):
+            # PyJWT's default of zero refused a token whose `iat` was a second ahead of this
+            # host, and the wizard read that as an expired session (a laptop ran 6.5 s ahead
+            # of Render, 2026-09-14).
+            payload = tokens.decode_bearer(token, settings.SECRET_KEY)
         except jwt.ExpiredSignatureError:
             # Routine, not suspicious: these tokens live 60 minutes and the wizard is a
             # nine-step form somebody walks away from. info, not warning.

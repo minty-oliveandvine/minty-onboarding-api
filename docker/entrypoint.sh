@@ -19,9 +19,9 @@ import time
 
 import psycopg2
 
-from config.dburl import database_url, parse_database_url
+from minty_shared.config import DEFAULT_LOCAL_DATABASE_URL, database_url_from_env, django_database
 
-db, schema = parse_database_url(database_url())
+db, schema = django_database(database_url_from_env(DEFAULT_LOCAL_DATABASE_URL))
 
 # Seconds, not attempts: the schema arrives only once Flask has finished its own
 # migrations, which on a cold volume takes a while.

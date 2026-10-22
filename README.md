@@ -69,14 +69,15 @@ and the upstream applies exactly the checks it would have applied to a direct ca
 
 ### 3. The error body key is `error`, not `detail`.
 
-`minty-payment-request-api` answers `{"detail": ...}`. This service must not, because the wizard
-reads `result.error` at some twenty call sites and resolves copy from
-`data.error ?? data.message`. A `detail` body reaches the user as a blank toast.
+Every Minty API now answers in one envelope, `minty_shared.django.errors` (2026-10-22):
+`{"error": "<sentence>"}`, plus `fields` (one sentence per input) when the schema refuses the input,
+which is a 422. The wizard reads `result.error` at some twenty call sites; a `detail` body would
+reach the user as a blank toast.
 
-This bites hardest on the auth path: ninja's built-in failure renders
-`{"detail": "Unauthorized"}` *before* any endpoint is reached, so
-`core/exceptions.py::on_unauthorized` exists specifically to override it.
-`tests/test_auth.py::test_every_401_uses_the_error_key_not_detail` is the regression cover.
+This bites hardest on the auth path: ninja's built-in failure renders `{"detail": "Unauthorized"}`
+*before* any endpoint is reached, and the shared handlers override it.
+`tests/test_auth.py::test_every_401_uses_the_error_key_not_detail` and
+`tests/test_error_envelope.py` are the regression cover.
 
 ---
 

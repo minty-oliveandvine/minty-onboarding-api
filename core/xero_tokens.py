@@ -30,12 +30,10 @@ no change to serve this service.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
 
-import jwt
 import requests
 from django.conf import settings
-from minty_shared import logctx
+from minty_shared import tokens
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -66,23 +64,13 @@ def access_token_for(entity_id: str) -> str | None:
         logger.error("xero: token service URL or SECRET_KEY unset; cannot get a token")
         return None
 
-    now = datetime.now(tz=UTC)
-    assertion = jwt.encode(
-        {
-            "scope": TOKEN_SERVICE_SCOPE,
-            # In the claims, deliberately -- see the module header.
-            "entity_id": str(entity_id),
-            "iat": now,
-            "exp": now + timedelta(seconds=60),
-        },
-        secret,
-        algorithm="HS256",
-    )
+    # The entity in the claims, deliberately -- see the module header (minty_shared.tokens).
+    assertion = tokens.service_assertion(secret, TOKEN_SERVICE_SCOPE, entity_id)
 
     try:
         resp = requests.post(
             url,
-            headers={"Authorization": f"Bearer {assertion}", **logctx.outgoing_headers()},
+            headers=tokens.assertion_headers(assertion),
             timeout=settings.XERO_TOKEN_SERVICE_TIMEOUT,
         )
     except requests.RequestException as exc:

@@ -5,7 +5,8 @@ import os
 # that check.
 os.environ.setdefault("APP_ENV", "development")
 
-from config.dburl import parse_database_url  # noqa: E402
+from minty_shared.config import django_database  # noqa: E402
+
 from config.settings import *  # noqa: E402, F401, F403
 
 # A fixed key so tests can mint a JWT the service will accept. Nothing about the
@@ -25,7 +26,7 @@ SECRET_KEY = "test-secret-key-shared-with-flask"
 #             (`...?schema=pettycash_alt` proves nothing hardcodes the schema name).
 _PG_URI = os.environ.get("MINTY_TEST_PG_URI")
 if _PG_URI:
-    _db, DB_SCHEMA = parse_database_url(_PG_URI)
+    _db, DB_SCHEMA = django_database(_PG_URI)
     _db["USER"] = _db["USER"] or "postgres"
     _db["HOST"] = _db["HOST"] or "localhost"
     _db["NAME"] = os.environ.get("MINTY_TEST_PG_DBNAME", "minty_test")

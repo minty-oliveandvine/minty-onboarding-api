@@ -30,10 +30,8 @@ the wizard submits whatever it was given straight back as ``currency_id``. Every
 crossing this boundary is ``str()``-ed on the way out.
 """
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from django.conf import settings
+from minty_shared import time as shared_time
 from ninja import Router, Status
 
 from core.auth import OnboardingBearerAuth
@@ -55,10 +53,10 @@ def server_time(request):
     future where the USER is -- a browser in another timezone would otherwise disagree
     with the server about what day it is and let a tomorrow through.
 
-    Asia/Hong_Kong, matching Minty's hardcoded tz (models/db.py, bootstrap.py). This is
+    every backend's default zone (minty_shared.time). This is
     the one display-timezone decision in the service; storage stays UTC.
     """
-    today = datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)).date()
+    today = shared_time.today_in(settings.DISPLAY_TIMEZONE)
     return {"today": today.isoformat()}
 
 

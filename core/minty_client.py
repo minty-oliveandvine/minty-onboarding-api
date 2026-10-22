@@ -32,16 +32,11 @@ this service to do something Flask would have refused. There is no service-to-se
 credential here to leak or to scope wrongly.
 """
 
-import logging
-
-import requests
 from django.conf import settings
 from django.http import JsonResponse
-from minty_shared import logctx
+from minty_shared.django import client as shared_client
 
 from core.exceptions import HOUSE_FALLBACK, UpstreamError
-
-logger = logging.getLogger("minty-onboarding")
 
 #: What we say when Flask is unreachable or answers in a shape we cannot read. Cause-
 #: neutral on purpose: the caller cannot act on "upstream 502" and the wizard renders
@@ -50,21 +45,12 @@ logger = logging.getLogger("minty-onboarding")
 UNREACHABLE = HOUSE_FALLBACK
 
 
-def _url(path: str, base: str | None = None) -> str:
-    return f"{base or settings.PETTY_CASH_URL}/{path.lstrip('/')}"
-
-
 def bearer_from(request) -> str:
-    """The caller's Authorization header, verbatim.
-
-    Raises rather than returning empty: every path that proxies has already been
-    through OnboardingBearerAuth, so a missing header here is a programming error in
-    this service, not a client problem.
-    """
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
-        raise UpstreamError(UNREACHABLE, status=500)
-    return header
+    """The caller's Authorization header, verbatim (``minty_shared.django.client``)."""
+    try:
+        return shared_client.bearer_from(request)
+    except shared_client.UpstreamUnavailable as exc:
+        raise UpstreamError(exc.message, status=exc.status) from None
 
 
 def forward(request, path: str, *, method: str = "POST", json=None, params=None, base=None):
@@ -72,59 +58,30 @@ def forward(request, path: str, *, method: str = "POST", json=None, params=None,
 
     The status is Flask's own, not flattened -- a 402 from a declined card, a 403 on
     missing billing consent and a 409 on a Xero org mismatch all mean something specific
-    to the wizard, and it has copy for each. Collapsing them into 502 would turn a
-    "your card was declined" into "something went wrong".
-
-    Returns the parsed body and the status. Callers hand both straight back to ninja.
+    to the wizard, and it has copy for each. The transport, the trace header and the
+    502/504 for no usable answer are ``minty_shared.django.client``'s.
     """
-    url = _url(path, base)
-    headers = {
-        "Authorization": bearer_from(request),
-        "Accept": "application/json",
-        **logctx.outgoing_headers(),
-    }
     try:
-        resp = requests.request(
-            method.upper(),
-            url,
-            headers=headers,
+        return shared_client.forward(
+            request,
+            path,
+            base=base or settings.PETTY_CASH_URL,
+            timeout=settings.MINTY_PROXY_TIMEOUT,
+            method=method,
             json=json,
             params=params,
-            timeout=settings.MINTY_PROXY_TIMEOUT,
         )
-    except requests.Timeout:
-        logger.warning("Proxy timeout: %s %s", method.upper(), url)
-        raise UpstreamError(UNREACHABLE, status=504) from None
-    except requests.RequestException as exc:
-        logger.warning("Proxy failed: %s %s -- %s", method.upper(), url, exc)
-        raise UpstreamError(UNREACHABLE, status=502) from None
+    except shared_client.UpstreamUnavailable as exc:
+        raise UpstreamError(exc.message, status=exc.status) from None
 
-    try:
-        payload = resp.json()
-    except ValueError:
-        # Flask answered with something that is not JSON -- an HTML error page, or a
-        # login redirect body if a route lost its csrf exemption. Do not pass the HTML
-        # on: the wizard would render markup in a toast.
-        logger.warning(
-            "Proxy returned non-JSON: %s %s -> %s", method.upper(), url, resp.status_code
-        )
-        raise UpstreamError(UNREACHABLE, status=502) from None
-
-    return payload, resp.status_code
 
 def proxy(request, path: str, *, method: str = "POST", json=None, params=None, base=None):
     """:func:`forward`, wrapped as a ``JsonResponse`` a ninja view can return directly.
 
     WHY NOT JUST RETURN THE TUPLE: ninja refuses any status the decorator has no declared
     schema for, and turns the refusal into a 500. A proxy can legitimately relay 400, 402,
-    403, 404, 409, 502, 503 -- enumerating all of those on every handler is noise, and
-    missing one converts a meaningful answer into "something went wrong".
-
-    An ``HttpResponse`` sidesteps the response-model machinery entirely: ninja passes it
-    through untouched, so Flask's status and body reach the wizard exactly as sent. Which is
-    the entire job of a proxy.
+    403, 404, 409, 502, 503 -- an ``HttpResponse`` sidesteps the response-model machinery,
+    so Flask's status and body reach the wizard exactly as sent.
     """
-    payload, status = forward(
-        request, path, method=method, json=json, params=params, base=base
-    )
+    payload, status = forward(request, path, method=method, json=json, params=params, base=base)
     return JsonResponse(payload, status=status, safe=False)

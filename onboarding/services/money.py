@@ -22,12 +22,14 @@ explicit argument beats a hidden request-global.
 import logging
 from decimal import Decimal
 
+from minty_shared import money as shared_money
+
 from shared_models.models import CurrencyInfo
 
 logger = logging.getLogger("minty-onboarding")
 
 #: Used when the code is missing, unknown, or the table cannot be read.
-FALLBACK_DECIMAL_PLACES = 2
+FALLBACK_DECIMAL_PLACES = shared_money.FALLBACK_DECIMAL_PLACES
 
 
 def load_currencies() -> dict:
@@ -74,17 +76,12 @@ def symbol(currencies: dict, currency_code) -> str:
     the plans' ``currency_symbol`` field carries it. ``currencies`` is unused now and kept
     so the callers' signature does not change.
     """
-    if not currency_code:
-        return ""
-    return str(currency_code).strip().upper()
+    return shared_money.label(currency_code)
 
 
 def to_major(currencies: dict, amount_minor, currency_code) -> Decimal:
     """Minor units to a major-unit Decimal. HKD 28000 -> 280.00; JPY 280 -> 280."""
-    if amount_minor is None:
-        return Decimal("0")
-    places = decimal_places(currencies, currency_code)
-    return Decimal(int(amount_minor)) / (Decimal(10) ** places)
+    return shared_money.to_major(amount_minor, decimal_places(currencies, currency_code))
 
 
 def format_minor(currencies: dict, amount_minor, currency_code) -> str:
@@ -93,6 +90,4 @@ def format_minor(currencies: dict, amount_minor, currency_code) -> str:
     The currency is stated separately by every caller. Repeating it here invites the two
     disagreeing.
     """
-    places = decimal_places(currencies, currency_code)
-    value = abs(Decimal(int(amount_minor or 0))) / (Decimal(10) ** places)
-    return f"{value:,.{places}f}"
+    return shared_money.format_minor(amount_minor, decimal_places(currencies, currency_code))

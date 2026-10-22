@@ -3,10 +3,16 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+from minty_shared.config import (
+    DEFAULT_LOCAL_DATABASE_URL,
+    app_env,
+    database_url_from_env,
+    django_database,
+    preview_origin_regexes,
+    require_secret_key,
+)
 from minty_shared.logctx import logging_config
-
-from config.dburl import database_url, parse_database_url
-from config.preview_origin import preview_origin_regexes
+from minty_shared.time import DEFAULT_ENTITY_TIMEZONE
 
 load_dotenv()
 
@@ -16,9 +22,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # the JWTs this service verifies, so a mismatch here 401s every request rather
 # than failing loudly at boot. All three services must read it from one source.
 _DEFAULT_SECRET_KEY = "change-me-in-production"
-SECRET_KEY = os.environ.get("SECRET_KEY", _DEFAULT_SECRET_KEY)
-# development | production. Anything else, or unset, is production.
-APP_ENV = os.environ.get("APP_ENV", "production").strip().lower()
+# development | production. Anything else, or unset, is production (minty_shared.config).
+APP_ENV = app_env()
 DEBUG = APP_ENV == "development"
 
 # REFUSE TO BOOT WITH THE PLACEHOLDER KEY OUTSIDE DEVELOPMENT. On 2026-09-14 the production
@@ -26,11 +31,12 @@ DEBUG = APP_ENV == "development"
 # "Signature verification failed" while the public endpoints kept working, and nothing
 # said why. Worse than broken, it was forgeable -- the fallback string is in the repo.
 # A crash at startup is the loud failure this comment used to say we did not have.
-if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
-    raise ImproperlyConfigured(
-        "SECRET_KEY is not set. It must be the same value the Flask app mints tokens "
-        "with; without it every request is refused with 401. Refusing to start."
+try:
+    SECRET_KEY = require_secret_key(
+        os.environ.get("SECRET_KEY"), placeholder=_DEFAULT_SECRET_KEY, development=DEBUG
     )
+except RuntimeError as exc:
+    raise ImproperlyConfigured(str(exc)) from None
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
 # Deliberately no django.contrib.contenttypes / django.contrib.auth.
@@ -50,7 +56,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
-    "core.middleware.RequestLoggingMiddleware",
+    "minty_shared.django.middleware.RequestLoggingMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
 
@@ -71,8 +77,11 @@ CORS_ALLOWED_ORIGINS = [
     for origin in (os.environ.get("CORS_ALLOWED_ORIGINS") or ONBOARDING_WEB_URL).split(",")
     if origin.strip()
 ]
-# A branch's preview set (config/preview_origin.py); unset = off.
-CORS_ALLOWED_ORIGIN_REGEXES = preview_origin_regexes(os.environ.get("PREVIEW_ORIGIN_REGEX"))
+# A branch's preview set (minty_shared.config); unset = off.
+try:
+    CORS_ALLOWED_ORIGIN_REGEXES = preview_origin_regexes(os.environ.get("PREVIEW_ORIGIN_REGEX"))
+except ValueError as exc:
+    raise ImproperlyConfigured(str(exc)) from None
 CORS_ALLOW_HEADERS = [
     "authorization",
     "content-type",
@@ -92,12 +101,12 @@ WSGI_APPLICATION = "config.wsgi.application"
 # first, then a hand-edit of the model here.
 # ---------------------------------------------------------------------------
 # One DATABASE_URL, the schema inside it: postgresql://user:pass@host:5432/db?schema=pettycashv3
-# (config/dburl.py). DB_SCHEMA is the schema every model lives in, shared with Minty, which
+# (minty_shared.config). DB_SCHEMA is the schema every model lives in, shared with Minty, which
 # reads the same URL the same way. pettycashv3 is the permanent production name and the
 # default; it is a setting, not a literal - every db_table is unqualified and resolves through
 # search_path, and the raw queries read this. The test settings and the root conftest read it
 # too, so `?schema=pettycash_alt` on the test URL proves it.
-_DEFAULT_DB, DB_SCHEMA = parse_database_url(database_url())
+_DEFAULT_DB, DB_SCHEMA = django_database(database_url_from_env(DEFAULT_LOCAL_DATABASE_URL))
 
 DATABASES = {"default": _DEFAULT_DB}
 
@@ -109,11 +118,10 @@ USE_TZ = True
 
 # UTC for storage, Hong Kong for the one thing that is a display decision:
 # GET /api/onboarding/server-time answers "what is today" so the wizard's date
-# picker caps at the user's local midnight rather than the browser's. Minty
-# hardcodes Asia/Hong_Kong (models/db.py, bootstrap.py) and this must agree with
-# it, or the two services disagree about what day it is.
+# picker caps at the user's local midnight rather than the browser's. Every backend's
+# default zone is minty_shared.time's, so the services agree about what day it is.
 TIME_ZONE = "UTC"
-DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
+DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE") or DEFAULT_ENTITY_TIMEZONE
 
 # ---------------------------------------------------------------------------
 # Cross-module: the Flask app and the subscription API
@@ -172,3 +180,5 @@ LOGGING = logging_config(
     no_propagate=["minty-onboarding.http"],
     level=os.environ.get("LOG_LEVEL", "INFO"),
 )
+# The access line's logger (minty_shared.django.middleware.RequestLoggingMiddleware).
+MINTY_HTTP_LOGGER = "minty-onboarding.http"

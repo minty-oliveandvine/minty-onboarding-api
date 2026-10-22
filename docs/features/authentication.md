@@ -56,7 +56,7 @@ against the Flask matrix.
 required outside development, default `http://localhost:8000` there — 2026-10-06),
 `DATABASE_URL` `?schema=` → `DB_SCHEMA` (the
 `search_path`), `ONBOARDING_WEB_URL` / `CORS_ALLOWED_ORIGINS` for the wizard's origin.
-`PREVIEW_ORIGIN_REGEX` (optional, unset = off) adds a branch's preview-set origins (`https://pr-<slug>-<app>.dailyminty.com`) to CORS; minty-infra sets it on one environment only, and a value that could let in any other origin refuses to boot (`config/preview_origin.py`, the same file in all three APIs).
+`PREVIEW_ORIGIN_REGEX` (optional, unset = off) adds a branch's preview-set origins (`https://pr-<slug>-<app>.dailyminty.com`) to CORS; minty-infra sets it on one environment only, and a value that could let in any other origin refuses to boot (`minty_shared.config`, the same file in all three APIs).
 
 ## Tests
 

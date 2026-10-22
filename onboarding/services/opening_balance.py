@@ -28,10 +28,10 @@ already living in.
 import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Q
+from minty_shared import time as shared_time
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
@@ -90,7 +90,7 @@ def save_opening_balance(user_id, entity_id: str, start_date, amount) -> dict:
     start = _parse_date(start_date)
 
     # Hong Kong midnight, not UTC -- see the module header.
-    today_local = datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)).date()
+    today_local = shared_time.today_in(settings.DISPLAY_TIMEZONE)
     if start > today_local:
         raise OnboardingValidationError(
             "Start date cannot be in the future. "

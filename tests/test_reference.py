@@ -171,21 +171,17 @@ def test_the_bundle_is_cheaper_than_the_sum(client, auth, plans, modules, policy
 
 
 @pytest.mark.django_db
-def test_symbol_comes_from_the_database(client, auth, plans, modules, policy):
+def test_the_label_is_the_code_even_where_a_glyph_is_recorded(client, auth, plans, modules, policy):
+    """Owner, 2026-10-21: every amount carries its ISO code, never "HK$"."""
     body = client.get(PLANS, **auth).json()
-    assert all(p["currency_symbol"] == "HK$" for p in body["plans"])
+    assert all(p["currency_symbol"] == "HKD" for p in body["plans"])
 
 
 @pytest.mark.django_db
-def test_symbol_falls_back_to_the_code_when_unset(
+def test_the_label_is_the_code_for_any_currency(
     client, auth, currencies, modules, policy
 ):
-    """The dev database has an empty symbol on EVERY row, so this is the live path.
-
-    Flask behaves identically, which is why /plans currently answers "HKD" rather than
-    "HK$" against the real database. A missing symbol must never cost the amount, so the
-    fallback is the code, not an empty string.
-    """
+    """A currency with no glyph recorded reads its code too."""
     BillingPlan.objects.create(
         id=uuid.uuid4(), code="BILL", display_name="Payment Request",
         amount=28000, currency="JPY", interval_months=1, is_active=True,

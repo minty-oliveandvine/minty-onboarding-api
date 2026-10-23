@@ -3,13 +3,14 @@
 Ported from Minty's blueprints/subscription/services/money.py, keeping three rules that
 each exist because they were once broken:
 
-1. THE SYMBOL COMES FROM THE DATABASE. Flask's docstring is explicit that it is "never
-   hardcoded", because a hardcoded "HK$" is wrong the moment a second currency is sold.
+1. THE LABEL IS THE CODE. Every amount is written with its ISO code, never a symbol
+   (owner, 2026-10-21): "HKD 400.00", as minty-subscription-api and the apps write it.
+   ``currency_info.symbol`` is no longer read for display.
 2. DECIMAL PLACES COME FROM THE DATABASE TOO. HKD 28000 minor units is 280.00; JPY 280
    minor units is 280. Dividing by a fixed 100 silently multiplies a yen price by a
    hundred.
-3. A LOOKUP FAILURE MUST NOT COST THE AMOUNT. A missing symbol falls back to the
-   upper-cased code, a missing decimal_places to 2. Returning nothing, or raising, would
+3. A LOOKUP FAILURE MUST NOT COST THE AMOUNT. A missing decimal_places falls back
+   to 2. Returning nothing, or raising, would
    mean a pricing page with no prices on it -- strictly worse than "HKD 400.00".
 
 Difference from Flask: it caches per request in ``flask.g``. Django has no equivalent, so
@@ -67,19 +68,15 @@ def decimal_places(currencies: dict, currency_code) -> int:
 
 
 def symbol(currencies: dict, currency_code) -> str:
-    """The display symbol, or the upper-cased code, or "" when there is no currency.
+    """The label in front of an amount: the upper-cased ISO code, or "" with no currency.
 
-    The code is upper-cased before the lookup. One of the two Flask callers this
-    replaces did not, so a lowercase code missed the row and rendered the bare code even
-    where a symbol existed.
+    Never the glyph ``currency_info`` records (owner, 2026-10-21); the name stays because
+    the plans' ``currency_symbol`` field carries it. ``currencies`` is unused now and kept
+    so the callers' signature does not change.
     """
     if not currency_code:
         return ""
-    code = str(currency_code).strip().upper()
-    row = _row(currencies, code)
-    if row is not None and row.symbol:
-        return row.symbol
-    return code
+    return str(currency_code).strip().upper()
 
 
 def to_major(currencies: dict, amount_minor, currency_code) -> Decimal:

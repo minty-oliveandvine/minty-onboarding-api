@@ -41,8 +41,8 @@ logger = logging.getLogger("minty-onboarding")
 
 entity_router = Router()
 
-#: Max length of entities.name. Re-checked server-side: the wizard's maxLength is a
-#: convenience, and this is a plain JSON endpoint.
+#: Max length of entities.name, on create and rename. The wizard's live check (Step 1 says so
+#: as it is typed and holds Save & Next) is a convenience; this is a plain JSON endpoint.
 NAME_MAX = 100
 
 
@@ -126,6 +126,10 @@ def create_entity(request, payload: CreateEntityIn):
         raise OnboardingValidationError("Choose the company's country.")
     if not currency:
         raise OnboardingValidationError("Choose the company's currency.")
+    if len(_first(payload.entity_name, payload.name).strip()) > NAME_MAX:
+        raise OnboardingValidationError(
+            f"Entity name must be {NAME_MAX} characters or fewer."
+        )
 
     phone, phone_error = resolve.contact_phone(payload.contact_phone)
     if phone_error:

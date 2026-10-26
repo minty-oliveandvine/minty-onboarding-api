@@ -18,6 +18,12 @@ ONCE A REPORT IS POSTED, IT IS TOO LATE
 The first report has already taken its opening from these values, so a change would do
 nothing; it is refused (409) rather than silently ignored.
 
+A BLANK IS NOT ZERO
+
+A missing, empty or whitespace amount is refused (400), not saved as 0: the wizard skips the
+call while the field is blank, so a blank that arrives is a missing amount, and a 0 would open
+the first report at nothing without anyone having typed it.
+
 NO SEVEN-DAY WINDOW
 
 A user can pick any past date. Only future dates are refused, and that boundary is Hong Kong
@@ -44,10 +50,13 @@ DRAFT = "draft"
 
 
 def _parse_amount(value, decimal_places: int) -> Decimal:
-    """The typed amount as a Decimal in the currency's places. A blank is 0; anything
-    unparseable, or finer than the currency allows (JPY takes whole amounts), is a 400."""
-    if value is None or value == "":
-        return Decimal(0).quantize(Decimal(1).scaleb(-decimal_places))
+    """The typed amount as a Decimal in the currency's places. A blank (None, "" or
+    whitespace), anything unparseable, or finer than the currency allows (JPY takes whole
+    amounts), is a 400."""
+    if value is None or str(value).strip() == "":
+        raise OnboardingValidationError(
+            "The opening balance is still empty. Add the amount to continue."
+        )
     try:
         amount = Decimal(str(value).strip())
     except (InvalidOperation, ValueError):

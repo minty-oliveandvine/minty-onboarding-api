@@ -58,7 +58,9 @@ sent (as edit always has) and sets the creator's `user_entity.joined_at`. **Crea
 country and a currency** (owner, 2026-10-19: Step 1 no longer pre-fills Hong Kong / HKD): no
 country is a 400 `"Choose the company's country."`, and no currency sent or derivable from the
 country's registry row is a 400 `"Choose the company's currency."` — both before the company is
-created. `PUT /entity/{id}` does not require them (a partial edit stays valid). Country and currency
+created. A name over 100 characters (after the trim) is a 400 `"Entity name must be 100
+characters or fewer."` on create as on rename (`NAME_MAX`, 2026-10-26; create had no limit
+before). `PUT /entity/{id}` does not require a country or currency (a partial edit stays valid). Country and currency
 are **resolved against the registries** (`resolve.country_code` accepts alpha-2, alpha-3
 or a unique name; `currency_id` only queries once the value is a uuid) and never stored
 unvalidated — they are foreign keys; phone and email are checked the way the wizard does.
@@ -98,7 +100,9 @@ account shares it. Blank means the payer's own address is used instead.
   report opens at the amount, defaults to the date and may not start before it. Refused
   with 409 once any report is posted; a future date, a negative or non-numeric amount, an
   amount finer than the currency's `decimal_places`, or a company with no currency yet is
-  400. Flask's fallback (`save_opening_balance`) does the same.
+  400. A **blank amount is refused, not saved as 0** (2026-10-26): no amount key, `null`, `""`
+  or whitespace is 400 `"The opening balance is still empty. Add the amount to continue."`
+  (the wizard skips the call while its field is blank). Flask's fallback (`save_opening_balance`) does the same.
 - `GET/POST /account-codes`, `POST /contacts`, `POST /contacts/create` (a new Xero
   contact), `GET/POST /bill-codes` — the expense accounts, the petty-cash contact mapping
   and the bills' account codes, over the rows Minty synced.

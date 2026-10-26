@@ -401,6 +401,26 @@ def test_a_negative_amount_is_refused(client, auth, entity):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "amount",
+    [{"opening_balance": ""}, {"opening_balance": "   "}, {"opening_balance": None},
+     {"cash_addition": ""}, {}],
+)
+def test_a_blank_amount_is_refused_not_saved_as_zero(client, auth, entity, amount):
+    """A blank is not 0: the wizard never sends one (it skips the call), so a blank that
+    arrives is a missing amount, and saving 0 would open the first report at nothing."""
+    resp = post_json(
+        client, auth, OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), **amount},
+    )
+    assert resp.status_code == 400
+    assert resp.json() == {
+        "error": "The opening balance is still empty. Add the amount to continue."
+    }
+    assert _settings(entity) is None
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("value", ["abc", "NaN", "Infinity"])
 def test_a_non_number_amount_is_400(client, auth, entity, value):
     resp = post_json(

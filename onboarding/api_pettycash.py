@@ -91,11 +91,12 @@ def post_opening_balance(request, payload: OpeningBalanceIn):
 
     # Flask reads opening_date first, then transaction_date; and cash_addition first, then
     # opening_balance. The order is the contract -- a caller sending both means the first.
+    # Neither is None, which the service refuses as empty -- never a silent 0.
     date_value = payload.opening_date or payload.transaction_date
     amount = (
         payload.cash_addition
         if payload.cash_addition is not None
-        else (payload.opening_balance if payload.opening_balance is not None else 0)
+        else payload.opening_balance
     )
     return opening_service.save_opening_balance(
         request.auth_user_id, payload.entity_id, date_value, amount

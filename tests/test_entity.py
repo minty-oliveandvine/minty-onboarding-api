@@ -76,6 +76,26 @@ def test_create_requires_a_name(client, auth, countries, currencies, modules):
 
 
 @pytest.mark.django_db
+def test_create_refuses_a_name_over_100_and_creates_nothing(
+    client, auth, countries, currencies, modules
+):
+    """The same NAME_MAX as the PUT: entities.name holds 100, and the wizard's live check is
+    a convenience on a plain JSON endpoint."""
+    resp = post_create(client, auth, entity_name="x" * 101, **STEP1)
+    assert resp.status_code == 400
+    assert resp.json() == {"error": "Entity name must be 100 characters or fewer."}
+    assert not Entity.objects.filter(name="x" * 101).exists()
+
+
+@pytest.mark.django_db
+def test_create_takes_a_name_of_exactly_100(client, auth, countries, currencies, modules):
+    """Measured after the trim, like the PUT."""
+    resp = post_create(client, auth, entity_name=" " + "x" * 100 + " ", **STEP1)
+    assert resp.status_code == 201
+    assert resp.json()["name"] == "x" * 100
+
+
+@pytest.mark.django_db
 def test_create_accepts_the_legacy_name_key(client, auth, countries, currencies, modules):
     """``name`` is the older alias for ``entity_name``. Both still work."""
     resp = post_create(client, auth, name="Legacy Caller Co", **STEP1)

@@ -51,6 +51,8 @@ never a real one (see "Never let a test navigate to step 9" below).
 - [ ] Country accepted as alpha-2, alpha-3, or a unique name; an unrecognised country string
       is refused, not silently stored.
 - [ ] Currency accepted only once resolved to a real `currency_id`.
+- [ ] `POST /create` with a 101-character name → 400 `"Entity name must be 100 characters or
+      fewer."` and no company; 100 is accepted.
 - [ ] Business email with non-ASCII characters → 400 `"Email can only contain English letters,
       numbers and symbols."`
 - [ ] Business email with no dot in the domain, or otherwise malformed → 400 `"Please enter a
@@ -66,7 +68,9 @@ never a real one (see "Never let a test navigate to step 9" below).
       with overlapping names).
 - [ ] `POST /opening-balance` writes `opening_balance` and `start_date` on
       `entity_pettycash_settings` and creates no `report` row; once a report is posted it
-      answers 409; with no currency, or more decimals than the currency allows, 400.
+      answers 409; with no currency, or more decimals than the currency allows, 400; with a
+      blank (missing, `null`, `""`, whitespace) amount, 400 "The opening balance is still
+      empty. Add the amount to continue." and nothing written.
 - [ ] `POST /create` / `PUT /entity/{id}` with `timezone` saves it to `entities.timezone`;
       `"Mars/Olympus"` is 400. A create naming only a country takes that country's currency.
 - [ ] `POST /finalize` with Petty Cash on and no Xero (or fewer than 6 accounts / 3 contacts)

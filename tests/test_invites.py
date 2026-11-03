@@ -38,8 +38,10 @@ def as_role(user, entity, role):
 
 def cancel(client, auth, invitation_id):
     return client.post(
-        CANCEL, {"invitation_id": invitation_id},
-        content_type="application/json", **auth,
+        CANCEL,
+        {"invitation_id": invitation_id},
+        content_type="application/json",
+        **auth,
     )
 
 
@@ -77,7 +79,8 @@ def test_non_pending_invites_are_excluded(client, auth, entity, status):
 @pytest.mark.django_db
 def test_listing_requires_membership(client, other_user, entity):
     resp = client.get(
-        INVITE, {"entity_id": entity.id},
+        INVITE,
+        {"entity_id": entity.id},
         HTTP_AUTHORIZATION=f"Bearer {make_token(other_user.id)}",
     )
     assert resp.status_code == 403
@@ -194,7 +197,7 @@ def test_you_cannot_cancel_an_invitation_that_outranks_you(client, user, entity)
 
 @pytest.mark.django_db
 def test_you_cannot_cancel_an_invitation_for_your_own_rank(client, user, entity):
-    """"Equal to or higher" -- an accountant may not cancel another accountant's invite."""
+    """ "Equal to or higher" -- an accountant may not cancel another accountant's invite."""
     inv = make_invite(entity, role="accountant")
     auth = as_role(user, entity, "accountant")
     assert cancel(client, auth, inv.id).status_code == 200
@@ -220,7 +223,9 @@ def test_a_stranger_cannot_cancel_another_companys_invitation(client, other_user
     """
     inv = make_invite(entity)
     resp = client.post(
-        CANCEL, {"invitation_id": inv.id}, content_type="application/json",
+        CANCEL,
+        {"invitation_id": inv.id},
+        content_type="application/json",
         HTTP_AUTHORIZATION=f"Bearer {make_token(other_user.id)}",
     )
     assert resp.status_code == 403
@@ -263,8 +268,11 @@ def test_sending_an_invite_is_forwarded_to_flask(client, auth, entity, monkeypat
     monkeypatch.setattr(minty_client, "forward", fake_forward)
 
     body = {
-        "entity_id": entity.id, "email": "new@example.com",
-        "role": "cashier", "first_name": "New", "last_name": "Hire",
+        "entity_id": entity.id,
+        "email": "new@example.com",
+        "role": "cashier",
+        "first_name": "New",
+        "last_name": "Hire",
     }
     resp = client.post(INVITE, body, content_type="application/json", **auth)
 
@@ -280,14 +288,17 @@ def test_sending_an_invite_is_forwarded_to_flask(client, auth, entity, monkeypat
 @pytest.mark.django_db
 def test_a_refused_invite_keeps_flasks_status(client, auth, entity, monkeypatch):
     """409 means "already invited". The wizard has copy for it; a flattened 500 would not."""
+
     def fake_forward(request, path, **kwargs):
         return {"error": "An invitation is already pending for this email."}, 409
 
     monkeypatch.setattr(minty_client, "forward", fake_forward)
 
     resp = client.post(
-        INVITE, {"entity_id": entity.id, "email": "dup@example.com", "role": "cashier"},
-        content_type="application/json", **auth,
+        INVITE,
+        {"entity_id": entity.id, "email": "dup@example.com", "role": "cashier"},
+        content_type="application/json",
+        **auth,
     )
     assert resp.status_code == 409
     assert "already pending" in resp.json()["error"]
@@ -296,7 +307,8 @@ def test_a_refused_invite_keeps_flasks_status(client, auth, entity, monkeypatch)
 @pytest.mark.django_db
 def test_sending_still_needs_a_token(client, entity):
     resp = client.post(
-        INVITE, {"entity_id": entity.id, "email": "x@example.com", "role": "cashier"},
+        INVITE,
+        {"entity_id": entity.id, "email": "x@example.com", "role": "cashier"},
         content_type="application/json",
     )
     assert resp.status_code == 401
@@ -310,9 +322,14 @@ def test_the_list_says_when_each_invitation_expires(client, auth, entity):
     from datetime import timedelta
 
     make_invite(entity, email="live@example.com", expires_at=datetime.now(UTC) + timedelta(days=3))
-    make_invite(entity, email="lapsed@example.com", expires_at=datetime.now(UTC) - timedelta(days=1))
+    make_invite(
+        entity, email="lapsed@example.com", expires_at=datetime.now(UTC) - timedelta(days=1)
+    )
 
-    rows = {r["email"]: r for r in client.get(INVITE, {"entity_id": entity.id}, **auth).json()["invitations"]}
+    rows = {
+        r["email"]: r
+        for r in client.get(INVITE, {"entity_id": entity.id}, **auth).json()["invitations"]
+    }
 
     assert rows["live@example.com"]["expired"] is False and rows["live@example.com"]["expires_at"]
     assert rows["lapsed@example.com"]["expired"] is True
@@ -328,7 +345,9 @@ def test_resending_is_forwarded_to_flask(client, auth, entity, monkeypatch):
         return {"message": "Invitation sent again."}, 200
 
     monkeypatch.setattr(minty_client, "forward", fake_forward)
-    resp = client.post(f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth)
+    resp = client.post(
+        f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth
+    )
 
     assert resp.status_code == 200
     assert seen == {"path": "/api/onboarding/invite/resend", "json": {"invitation_id": "abc"}}
@@ -336,7 +355,12 @@ def test_resending_is_forwarded_to_flask(client, auth, entity, monkeypatch):
 
 @pytest.mark.django_db
 def test_a_resend_cooldown_keeps_flasks_429(client, auth, entity, monkeypatch):
-    monkeypatch.setattr(minty_client, "forward",
-                        lambda *a, **k: ({"error": "Wait a moment.", "retry_after": 42}, 429))
-    resp = client.post(f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth)
+    monkeypatch.setattr(
+        minty_client,
+        "forward",
+        lambda *a, **k: ({"error": "Wait a moment.", "retry_after": 42}, 429),
+    )
+    resp = client.post(
+        f"{INVITE}/resend", {"invitation_id": "abc"}, content_type="application/json", **auth
+    )
     assert resp.status_code == 429 and resp.json()["retry_after"] == 42

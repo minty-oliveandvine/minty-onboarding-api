@@ -112,6 +112,7 @@ def forward(request, path: str, *, method: str = "POST", json=None, params=None,
 
     return payload, resp.status_code
 
+
 def proxy(request, path: str, *, method: str = "POST", json=None, params=None, base=None):
     """:func:`forward`, wrapped as a ``JsonResponse`` a ninja view can return directly.
 
@@ -124,7 +125,5 @@ def proxy(request, path: str, *, method: str = "POST", json=None, params=None, b
     through untouched, so Flask's status and body reach the wizard exactly as sent. Which is
     the entire job of a proxy.
     """
-    payload, status = forward(
-        request, path, method=method, json=json, params=params, base=base
-    )
+    payload, status = forward(request, path, method=method, json=json, params=params, base=base)
     return JsonResponse(payload, status=status, safe=False)

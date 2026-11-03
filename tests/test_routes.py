@@ -109,9 +109,7 @@ def test_no_unexpected_routes_are_exposed():
     handler is a security question and not merely an untidiness.
     """
     extra = set(_operations()) - EXPECTED
-    assert not extra, (
-        f"unexpected routes exposed: {sorted(extra)}. Add each to PORTED or PROXIED."
-    )
+    assert not extra, f"unexpected routes exposed: {sorted(extra)}. Add each to PORTED or PROXIED."
 
 
 def test_ported_and_proxied_do_not_overlap():

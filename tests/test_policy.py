@@ -141,8 +141,12 @@ def test_a_superuser_with_a_row_on_the_entity_gets_full_access(entity):
     """Inside their OWN entity a superuser is an ordinary super_admin. The row is what
     distinguishes 'my company' from 'browsing a customer's'."""
     su = User.objects.create(
-        id=str(uuid.uuid4()), email="su@example.com", username="su@example.com",
-        password="x", system_role="superadmin", approved=True,
+        id=str(uuid.uuid4()),
+        email="su@example.com",
+        username="su@example.com",
+        password="x",
+        system_role="superadmin",
+        approved=True,
     )
     UserEntity.objects.create(user_id=su.id, entity_id=entity.id, role="super_admin", approved=True)
     assert policy.is_superuser_readonly(su, entity.id) is False

@@ -42,8 +42,7 @@ def load_currencies() -> dict:
     """
     try:
         return {
-            (row.currency_code or "").strip().upper(): row
-            for row in CurrencyInfo.objects.all()
+            (row.currency_code or "").strip().upper(): row for row in CurrencyInfo.objects.all()
         }
     except Exception:  # noqa: BLE001 - a currency lookup must not cost the amount
         logger.exception("money: could not read currency_info; using fallbacks")

@@ -56,9 +56,7 @@ def country_code(value) -> str:
 
     if row is None:
         # limit 2: enough to tell unique from ambiguous without fetching the rest.
-        matches = list(
-            CountryInfo.objects.filter(country_name_en__istartswith=text)[:2]
-        )
+        matches = list(CountryInfo.objects.filter(country_name_en__istartswith=text)[:2])
         if len(matches) == 1:
             row = matches[0]
 
@@ -161,7 +159,7 @@ def contact_phone(value) -> tuple[str | None, str]:
     dial = next((digits[:n] for n in (3, 2, 1) if digits[:n] in codes), None)
     if dial is None:
         return None, PHONE_INVALID
-    national = digits[len(dial):]
+    national = digits[len(dial) :]
     if national.startswith("0") and dial not in KEEPS_LEADING_ZERO:
         national = national[1:]
     expected = PHONE_LENGTHS.get(dial)

@@ -54,4 +54,3 @@ def _route_name(request, view_func) -> str | None:
                 return operation.view_func.__name__
     match = request.resolver_match
     return match.url_name if match else None
-

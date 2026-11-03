@@ -93,11 +93,7 @@ def post_opening_balance(request, payload: OpeningBalanceIn):
     # opening_balance. The order is the contract -- a caller sending both means the first.
     # Neither is None, which the service refuses as empty -- never a silent 0.
     date_value = payload.opening_date or payload.transaction_date
-    amount = (
-        payload.cash_addition
-        if payload.cash_addition is not None
-        else payload.opening_balance
-    )
+    amount = payload.cash_addition if payload.cash_addition is not None else payload.opening_balance
     return opening_service.save_opening_balance(
         request.auth_user_id, payload.entity_id, date_value, amount
     )
@@ -111,7 +107,9 @@ def get_account_codes(request, entity_id: str = ""):
     """Xero-sourced account options plus current selections. 409 until Xero is connected."""
     entity_id = require_entity_id(entity_id)
     return minty_client.proxy(
-        request, "/api/onboarding/account-codes", method="GET",
+        request,
+        "/api/onboarding/account-codes",
+        method="GET",
         params={"entity_id": entity_id},
     )
 
@@ -137,7 +135,9 @@ def get_bill_codes(request, entity_id: str = ""):
     """Bill chart-of-accounts tick state, from minty-payment-request-api's snapshot table."""
     entity_id = require_entity_id(entity_id)
     return minty_client.proxy(
-        request, "/api/onboarding/bill-codes", method="GET",
+        request,
+        "/api/onboarding/bill-codes",
+        method="GET",
         params={"entity_id": entity_id},
     )
 

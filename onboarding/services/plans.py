@@ -55,6 +55,7 @@ def plan_modules(code: str) -> list[str]:
         w for w in ((part or "").strip().upper() for part in (code or "").split("+")) if w
     )
 
+
 #: Shipped default if ``billing_policy`` has no row -- an app running before the
 #: migration, or a test database where it was never seeded. Quiet, because the default
 #: IS the shipped behaviour. Matches policy.DEFAULT_TRIAL_DAYS in Flask.
@@ -75,9 +76,7 @@ def _interval(plan: BillingPlan) -> tuple[str, int]:
 
 def _active_plans() -> list[BillingPlan]:
     """Every sellable plan, cheapest first. Same ordering as Flask's store."""
-    return list(
-        BillingPlan.objects.filter(is_active=True).order_by("amount", "code")
-    )
+    return list(BillingPlan.objects.filter(is_active=True).order_by("amount", "code"))
 
 
 def _trial_days() -> int:
@@ -134,9 +133,7 @@ def get_module_plan_catalog() -> dict:
                 "code": code,
                 "name": names.get(code) or code,
                 "amount": float(money.to_major(currencies, plan.amount, currency)),
-                "formatted_amount": money.format_minor(
-                    currencies, plan.amount, currency
-                ),
+                "formatted_amount": money.format_minor(currencies, plan.amount, currency),
                 "currency_code": currency,
                 "currency_symbol": money.symbol(currencies, currency),
                 "billing_interval": interval or "month",
@@ -150,9 +147,7 @@ def get_module_plan_catalog() -> dict:
         bundle_currency = None
     else:
         bundle_currency = (bundle.currency or "").upper()
-        bundle_amount = float(
-            money.to_major(currencies, bundle.amount, bundle_currency)
-        )
+        bundle_amount = float(money.to_major(currencies, bundle.amount, bundle_currency))
         bundle_codes = plan_modules(bundle.code)
         bundle_currency = bundle_currency or None
 

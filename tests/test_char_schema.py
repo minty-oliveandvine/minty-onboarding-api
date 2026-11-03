@@ -63,18 +63,32 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     client, auth, user, countries, currencies, cash_catalogue, modules, enable_module, monkeypatch
 ):
     # ---- step 1: the company ---------------------------------------------------------------
-    resp = post_json(client, auth, CREATE, {"entity_name": "Wizard Walk Ltd", "country_id": "HK",
-                                            "currency_id": str(currencies["HKD"].id),
-                                            "contact_phone": "+852 1234 5678", "business_email": "hello@walk.test"})
+    resp = post_json(
+        client,
+        auth,
+        CREATE,
+        {
+            "entity_name": "Wizard Walk Ltd",
+            "country_id": "HK",
+            "currency_id": str(currencies["HKD"].id),
+            "contact_phone": "+852 1234 5678",
+            "business_email": "hello@walk.test",
+        },
+    )
     assert resp.status_code == 201, resp.content
     entity_id = resp.json()["entity_id"]
 
     entity = Entity.objects.get(id=entity_id)
     assert entity.status == "onboarding" and entity.country_code == "HK"
     membership = UserEntity.objects.get(entity_id=entity_id, user_id=user.id)
-    assert membership.role == "admin" and membership.approved is True  # the creator is the company admin
+    assert (
+        membership.role == "admin" and membership.approved is True
+    )  # the creator is the company admin
     by_function = {str(fn.id): code for code, fn in modules.items()}
-    grants = {by_function[str(m.entity_function_id)]: m for m in EntityFunctionMap.objects.filter(entity_id=entity_id)}
+    grants = {
+        by_function[str(m.entity_function_id)]: m
+        for m in EntityFunctionMap.objects.filter(entity_id=entity_id)
+    }
     assert set(grants) == set(modules) and not any(m.is_enabled for m in grants.values())
     assert all(str(m.created_by) == str(user.id) for m in grants.values())
     defaults = EntitySaleSetting.objects.filter(entity_id=entity_id)
@@ -87,7 +101,9 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_MODULE
 
     # ---- step 2: the module (Flask grants it; the row is what Flask writes) ------------------
-    EntityFunctionMap.objects.filter(entity_id=entity_id, entity_function_id=modules["PETTY_CASH"].id).delete()
+    EntityFunctionMap.objects.filter(
+        entity_id=entity_id, entity_function_id=modules["PETTY_CASH"].id
+    ).delete()
     enable_module(entity, "PETTY_CASH")
     assert state_of(client, auth, entity_id)["modules"] == ["PETTY_CASH"]
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_ACCOUNTING
@@ -98,36 +114,75 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_SALES
 
     # ---- step 5: sales methods -------------------------------------------------------------
-    resp = post_json(client, auth, SALES, {"entity_id": entity_id, "electronic": ["Visa", "Octopus"], "delivery": ["Foodpanda"]})
+    resp = post_json(
+        client,
+        auth,
+        SALES,
+        {"entity_id": entity_id, "electronic": ["Visa", "Octopus"], "delivery": ["Foodpanda"]},
+    )
     assert resp.status_code == 200, resp.content
-    active = {s.sale.sale_name for s in EntitySaleSetting.objects.filter(entity_id=entity_id, is_active=True).select_related("sale")}
+    active = {
+        s.sale.sale_name
+        for s in EntitySaleSetting.objects.filter(
+            entity_id=entity_id, is_active=True
+        ).select_related("sale")
+    }
     assert {"Visa", "Octopus", "Foodpanda", "Cash"} <= active
     body = state_of(client, auth, entity_id)
     assert "Octopus" in body["sales_methods"]["electronic"]  # the POST body shape: names per type
 
     # ---- step 6: account codes (Flask writes the settings; the row points at account_info) ---
     account = AccountInfo.objects.create(
-        id=uuid.uuid4(), entity_id=entity_id, type="CURRENT", name="Petty Cash",
-        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+        id=uuid.uuid4(),
+        entity_id=entity_id,
+        type="CURRENT",
+        name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()),
+        xero_code="090",
+        status="ACTIVE",
     )
     EntityPettycashSettings.objects.create(entity_id=entity_id, pettycash_account_id=account.id)
-    assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_INVITE  # account codes done, no bill module -> invite
+    assert (
+        state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_INVITE
+    )  # account codes done, no bill module -> invite
 
     # ---- opening balance: on the settings row Step 6 made; no report ----------------------
-    resp = post_json(client, auth, OPENING, {"entity_id": entity_id, "opening_date": date.today().isoformat(), "cash_addition": "1500.50"})
+    resp = post_json(
+        client,
+        auth,
+        OPENING,
+        {
+            "entity_id": entity_id,
+            "opening_date": date.today().isoformat(),
+            "cash_addition": "1500.50",
+        },
+    )
     assert resp.status_code == 200, resp.content
     settings_row = EntityPettycashSettings.objects.get(entity_id=entity_id)
-    assert settings_row.opening_balance == Decimal("1500.50") and settings_row.start_date == date.today()
+    assert (
+        settings_row.opening_balance == Decimal("1500.50")
+        and settings_row.start_date == date.today()
+    )
     assert settings_row.pettycash_account_id == account.id  # Step 6's mapping survives
     assert not Report.objects.filter(entity_id=entity_id).exists()
-    resp = post_json(client, auth, OPENING, {"entity_id": entity_id, "opening_date": date.today().isoformat(), "cash_addition": "2000"})
+    resp = post_json(
+        client,
+        auth,
+        OPENING,
+        {"entity_id": entity_id, "opening_date": date.today().isoformat(), "cash_addition": "2000"},
+    )
     assert resp.status_code == 200
     assert state_of(client, auth, entity_id)["opening_balance"]["opening_balance"] == 2000.0
 
     # ---- an invitation (Flask writes it; the row on the schema) ----------------------------
     Invitation.objects.create(
-        id=uuid.uuid4(), entity_id=entity_id, email="new@walk.test", role="cashier",
-        token=uuid.uuid4().hex, status="pending", invited_by=user.id,
+        id=uuid.uuid4(),
+        entity_id=entity_id,
+        email="new@walk.test",
+        role="cashier",
+        token=uuid.uuid4().hex,
+        status="pending",
+        invited_by=user.id,
     )
     pending = state_of(client, auth, entity_id)["invites"]
     assert [(i["email"], i["role"]) for i in pending] == [("new@walk.test", "cashier")]

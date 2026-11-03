@@ -110,7 +110,9 @@ def test_a_stranger_cannot_finalize(client, other_user, entity, monkeypatch):
 
 
 def test_finalize_needs_an_entity_id(client, auth):
-    resp = client.post("/api/onboarding/finalize", data="{}", content_type="application/json", **auth)
+    resp = client.post(
+        "/api/onboarding/finalize", data="{}", content_type="application/json", **auth
+    )
     assert resp.status_code == 400
 
 
@@ -134,17 +136,28 @@ def _xero(entity):
 
 
 def _map_petty_cash(entity, *, accounts=6, contacts=3):
-    acc = [AccountInfo.objects.create(id=uuid.uuid4(), entity_id=entity.id, type="BANK", name=f"A{i}")
-           for i in range(accounts)]
+    acc = [
+        AccountInfo.objects.create(id=uuid.uuid4(), entity_id=entity.id, type="BANK", name=f"A{i}")
+        for i in range(accounts)
+    ]
     con = []
     with connection.cursor() as cur:
         for i in range(contacts):
             cid = uuid.uuid4()
-            cur.execute("INSERT INTO xero_contact_sync (id, entity_id, xero_contact_id, name) "
-                        "VALUES (%s, %s, %s, %s)", [str(cid), str(entity.id), f"c{i}", f"C{i}"])
+            cur.execute(
+                "INSERT INTO xero_contact_sync (id, entity_id, xero_contact_id, name) "
+                "VALUES (%s, %s, %s, %s)",
+                [str(cid), str(entity.id), f"c{i}", f"C{i}"],
+            )
             con.append(cid)
-    cols = ["pettycash_account_id", "bank_account_id", "cash_sale_account_id",
-            "discrepancy_bank_account_id", "discrepancy_account_id", "director_account_id"]
+    cols = [
+        "pettycash_account_id",
+        "bank_account_id",
+        "cash_sale_account_id",
+        "discrepancy_bank_account_id",
+        "discrepancy_account_id",
+        "director_account_id",
+    ]
     ccols = ["cash_sale_contact_id", "director_contact_id", "discrepancy_contact_id"]
     EntityPettycashSettings.objects.create(
         entity_id=entity.id,
@@ -155,8 +168,11 @@ def _map_petty_cash(entity, *, accounts=6, contacts=3):
 
 def _bill_code(entity, code="400", *, active=True, default=False):
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO entity_bill_account_xero (entity_id, account_code, is_active, is_default) "
-                    "VALUES (%s, %s, %s, %s)", [str(entity.id), code, active, default])
+        cur.execute(
+            "INSERT INTO entity_bill_account_xero (entity_id, account_code, is_active, is_default) "
+            "VALUES (%s, %s, %s, %s)",
+            [str(entity.id), code, active, default],
+        )
 
 
 def _trials_ok(monkeypatch):

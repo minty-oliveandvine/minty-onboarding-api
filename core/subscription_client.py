@@ -24,7 +24,11 @@ from core import minty_client
 def forward(request, path: str, *, method: str = "POST", json=None, params=None):
     """``(payload, status)`` from the subscription API, as the current caller."""
     return minty_client.forward(
-        request, path, method=method, json=json, params=params,
+        request,
+        path,
+        method=method,
+        json=json,
+        params=params,
         base=settings.SUBSCRIPTION_API_URL,
     )
 
@@ -32,6 +36,10 @@ def forward(request, path: str, *, method: str = "POST", json=None, params=None)
 def proxy(request, path: str, *, method: str = "POST", json=None, params=None):
     """:func:`forward`, as a ``JsonResponse`` a ninja view can return directly."""
     return minty_client.proxy(
-        request, path, method=method, json=json, params=params,
+        request,
+        path,
+        method=method,
+        json=json,
+        params=params,
         base=settings.SUBSCRIPTION_API_URL,
     )

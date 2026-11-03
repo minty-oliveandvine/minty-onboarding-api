@@ -161,6 +161,8 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
 
     logger.info(
         "sales methods: entity=%s electronic=%s delivery=%s",
-        entity_id, len(desired[SaleType.ELECTRONIC]), len(desired[SaleType.DELIVERY]),
+        entity_id,
+        len(desired[SaleType.ELECTRONIC]),
+        len(desired[SaleType.DELIVERY]),
     )
     return {"electronic": desired[SaleType.ELECTRONIC], "delivery": desired[SaleType.DELIVERY]}

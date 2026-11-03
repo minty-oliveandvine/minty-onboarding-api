@@ -24,8 +24,9 @@ def sync_cash_settings(entity_id, currency_id) -> None:
         return
     entity_id = str(entity_id)
     catalogue = list(
-        CashInfo.objects.filter(currency_id=currency_id, is_active=True)
-        .values_list("id", "display_order")
+        CashInfo.objects.filter(currency_id=currency_id, is_active=True).values_list(
+            "id", "display_order"
+        )
     )
     # str() both sides: Django hands back uuid.UUID, the caller may hold a str.
     wanted = {str(cash_id): order for cash_id, order in catalogue}
@@ -33,8 +34,9 @@ def sync_cash_settings(entity_id, currency_id) -> None:
     with transaction.atomic():
         existing = {
             str(cash_id)
-            for cash_id in EntityCashSetting.objects.filter(entity_id=entity_id)
-            .values_list("cash_id", flat=True)
+            for cash_id in EntityCashSetting.objects.filter(entity_id=entity_id).values_list(
+                "cash_id", flat=True
+            )
         }
         stale = existing - wanted.keys()
         if stale:
@@ -52,9 +54,13 @@ def sync_cash_settings(entity_id, currency_id) -> None:
         # cash count reports the same gap when it renders.
         logger.warning(
             "cash settings: currency %s has no active denominations (entity %s)",
-            currency_id, entity_id,
+            currency_id,
+            entity_id,
         )
     logger.info(
         "cash settings: entity=%s currency=%s rows=%s removed=%s",
-        entity_id, currency_id, len(wanted), len(stale),
+        entity_id,
+        currency_id,
+        len(wanted),
+        len(stale),
     )

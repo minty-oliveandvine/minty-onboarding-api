@@ -69,9 +69,7 @@ def invite_payload(inv: Invitation) -> dict:
 
 
 def _pending(entity_id: str):
-    return Invitation.objects.filter(entity_id=entity_id, status="pending").order_by(
-        "-created_at"
-    )
+    return Invitation.objects.filter(entity_id=entity_id, status="pending").order_by("-created_at")
 
 
 def list_pending(user_id, entity_id: str) -> dict:
@@ -118,15 +116,11 @@ def cancel(user_id, invitation_id: str) -> dict:
 
     # The entity comes from the INVITATION, not from the caller. There is no entity_id in
     # this request to check membership against, so the invitation's own entity is the scope.
-    if not has_permission_by_user_id(
-        user_id, Permission.USER_INVITE, invitation.entity_id
-    ):
+    if not has_permission_by_user_id(user_id, Permission.USER_INVITE, invitation.entity_id):
         raise AccessDeniedError("Not authorized.")
 
     user = User.objects.filter(id=str(user_id)).first()
-    if not can_manage_role_assignment_for_entity(
-        user, invitation.role, invitation.entity_id
-    ):
+    if not can_manage_role_assignment_for_entity(user, invitation.role, invitation.entity_id):
         raise AccessDeniedError(
             "You cannot cancel an invitation for a role equal to or higher than your own."
         )

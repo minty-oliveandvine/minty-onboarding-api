@@ -150,7 +150,9 @@ def test_malformed_json_from_the_token_service_is_none(token_service):
     assert xero_tokens.access_token_for(ENTITY) is None
 
 
-@pytest.mark.parametrize("body", [{}, {"access_token": ""}, {"access_token": None}, {"token": "wrong key"}])
+@pytest.mark.parametrize(
+    "body", [{}, {"access_token": ""}, {"access_token": None}, {"token": "wrong key"}]
+)
 def test_a_200_without_an_access_token_is_none(token_service, body):
     token_service(FakeResponse(200, body))
     assert xero_tokens.access_token_for(ENTITY) is None

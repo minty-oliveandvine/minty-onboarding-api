@@ -78,9 +78,7 @@ def _parse_date(value):
         try:
             return datetime.strptime(value.strip(), "%Y-%m-%d").date()
         except (ValueError, AttributeError):
-            raise OnboardingValidationError(
-                "Invalid date format (expected YYYY-MM-DD)"
-            ) from None
+            raise OnboardingValidationError("Invalid date format (expected YYYY-MM-DD)") from None
     return value
 
 
@@ -102,8 +100,7 @@ def save_opening_balance(user_id, entity_id: str, start_date, amount) -> dict:
     today_local = datetime.now(ZoneInfo(settings.DISPLAY_TIMEZONE)).date()
     if start > today_local:
         raise OnboardingValidationError(
-            "Start date cannot be in the future. "
-            f"You can only choose dates up to {today_local}."
+            f"Start date cannot be in the future. You can only choose dates up to {today_local}."
         )
 
     # The amount is cash in a currency, and the first report counts it in that currency's
@@ -130,7 +127,10 @@ def save_opening_balance(user_id, entity_id: str, start_date, amount) -> dict:
 
     logger.info(
         "opening balance: entity=%s start=%s amount=%s settings_created=%s",
-        entity_id, start, value, created,
+        entity_id,
+        start,
+        value,
+        created,
     )
     return {
         "opening_date": start.isoformat(),

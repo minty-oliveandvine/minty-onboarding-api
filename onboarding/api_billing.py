@@ -42,9 +42,7 @@ billing_router = Router()
 
 def _get(request, path: str, entity_id: str):
     entity_id = require_entity_id(entity_id)
-    return subscription_client.proxy(
-        request, path, method="GET", params={"entity_id": entity_id}
-    )
+    return subscription_client.proxy(request, path, method="GET", params={"entity_id": entity_id})
 
 
 # --- Legacy per-entity payment method -------------------------------------------------
@@ -132,19 +130,36 @@ def setup_gaps(entity) -> list[dict]:
         gaps.append({"step": 4, "message": "Connect Xero."})
         return gaps  # nothing below can be mapped without it
     if pettycash and setup.pettycash_accounts_set < setup.pettycash_accounts_total:
-        gaps.append({"step": 6, "message": (
-            f"Choose the petty cash account codes "
-            f"({setup.pettycash_accounts_set} of {setup.pettycash_accounts_total} set).")})
+        gaps.append(
+            {
+                "step": 6,
+                "message": (
+                    f"Choose the petty cash account codes "
+                    f"({setup.pettycash_accounts_set} of {setup.pettycash_accounts_total} set)."
+                ),
+            }
+        )
     if pettycash and setup.pettycash_contacts_set < setup.pettycash_contacts_total:
-        gaps.append({"step": 7, "message": (
-            f"Choose the petty cash contacts "
-            f"({setup.pettycash_contacts_set} of {setup.pettycash_contacts_total} set).")})
+        gaps.append(
+            {
+                "step": 7,
+                "message": (
+                    f"Choose the petty cash contacts "
+                    f"({setup.pettycash_contacts_set} of {setup.pettycash_contacts_total} set)."
+                ),
+            }
+        )
     if bills and setup.bill_accounts_set < 1:
         gaps.append({"step": 8, "message": "Tick at least one payment request account code."})
-    if bills and EntityBillAccountXero.objects.filter(
-        entity_id=entity.id, is_default=True, is_active=False, is_deleted=False
-    ).exists():
-        gaps.append({"step": 8, "message": "Make the default account code one of the ticked codes."})
+    if (
+        bills
+        and EntityBillAccountXero.objects.filter(
+            entity_id=entity.id, is_default=True, is_active=False, is_deleted=False
+        ).exists()
+    ):
+        gaps.append(
+            {"step": 8, "message": "Make the default account code one of the ticked codes."}
+        )
     return gaps
 
 
@@ -173,15 +188,16 @@ def post_finalize(request, payload: dict = Body(default={})):
     gaps = setup_gaps(entity)
     if gaps:
         logger.info("onboarding: finalize of entity %s refused: %s", entity.id, gaps)
-        return Status(409, {
-            "error": "Finish setting up first: " + " ".join(g["message"] for g in gaps),
-            "missing": gaps,
-        })
+        return Status(
+            409,
+            {
+                "error": "Finish setting up first: " + " ".join(g["message"] for g in gaps),
+                "missing": gaps,
+            },
+        )
 
     if entity.status == EntityStatus.ONBOARDING:
-        entity.status = (
-            EntityStatus.CONNECTED if entity.xero_org_id else EntityStatus.DISCONNECTED
-        )
+        entity.status = EntityStatus.CONNECTED if entity.xero_org_id else EntityStatus.DISCONNECTED
         entity.save(update_fields=["status"])
         logger.info("onboarding: entity %s finalized (%s)", entity.id, entity.status)
 

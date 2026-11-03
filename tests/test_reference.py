@@ -30,7 +30,7 @@ def test_server_time_is_an_iso_date(client):
 
 @pytest.mark.django_db
 def test_server_time_uses_the_display_timezone_not_utc(client, settings):
-    """"Today" must be the user's today, not the server's.
+    """ "Today" must be the user's today, not the server's.
 
     The wizard's date picker caps selectable dates at this value so a future date cannot
     be chosen. With Asia/Hong_Kong being UTC+8, a request in the UTC evening is already
@@ -107,7 +107,9 @@ def test_country_id_duplicates_the_code(client, countries):
 @pytest.mark.django_db
 def test_countries_carry_their_dial_code(client, countries):
     """The Phone Number picker's source: "+852" as stored, "" for a row without one."""
-    by_code = {c["country_code"]: c["phone_code"] for c in client.get(COUNTRIES).json()["countries"]}
+    by_code = {
+        c["country_code"]: c["phone_code"] for c in client.get(COUNTRIES).json()["countries"]
+    }
     assert by_code == {"HK": "+852", "AU": "+61", "AF": ""}
 
 
@@ -124,7 +126,10 @@ def test_plans_lists_singles_and_excludes_the_bundle(client, auth, plans, module
     """
     body = client.get(PLANS, **auth).json()
     assert [p["code"] for p in body["plans"]] == ["PETTY_CASH", "PAYMENT_REQUEST"]
-    assert body["bundle_codes"] == ["PAYMENT_REQUEST", "PETTY_CASH"]  # module codes, not the plan word
+    assert body["bundle_codes"] == [
+        "PAYMENT_REQUEST",
+        "PETTY_CASH",
+    ]  # module codes, not the plan word
 
 
 @pytest.mark.django_db
@@ -148,8 +153,13 @@ def test_zero_decimal_currency_is_not_divided_by_a_hundred(
     currency_info rather than assumed.
     """
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PETTY_CASH", display_name="Petty Cash",
-        amount=280, currency="JPY", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PETTY_CASH",
+        display_name="Petty Cash",
+        amount=280,
+        currency="JPY",
+        interval_months=1,
+        is_active=True,
     )
     body = client.get(PLANS, **auth).json()
     petty = next(p for p in body["plans"] if p["code"] == "PETTY_CASH")
@@ -177,13 +187,16 @@ def test_the_label_is_the_code_even_where_a_glyph_is_recorded(client, auth, plan
 
 
 @pytest.mark.django_db
-def test_the_label_is_the_code_for_any_currency(
-    client, auth, currencies, modules, policy
-):
+def test_the_label_is_the_code_for_any_currency(client, auth, currencies, modules, policy):
     """A currency with no glyph recorded reads its code too."""
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PAYMENT_REQUEST", display_name="Payment Request",
-        amount=28000, currency="JPY", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PAYMENT_REQUEST",
+        display_name="Payment Request",
+        amount=28000,
+        currency="JPY",
+        interval_months=1,
+        is_active=True,
     )
     body = client.get(PLANS, **auth).json()
     bill = next(p for p in body["plans"] if p["code"] == "PAYMENT_REQUEST")
@@ -198,8 +211,13 @@ def test_a_module_with_no_plan_is_omitted_not_free(client, auth, modules, policy
     a module rendered at 0.00 reads as free.
     """
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PETTY_CASH", display_name="Petty Cash",
-        amount=28000, currency="HKD", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PETTY_CASH",
+        display_name="Petty Cash",
+        amount=28000,
+        currency="HKD",
+        interval_months=1,
+        is_active=True,
     )
     body = client.get(PLANS, **auth).json()
     assert [p["code"] for p in body["plans"]] == ["PETTY_CASH"]
@@ -208,8 +226,13 @@ def test_a_module_with_no_plan_is_omitted_not_free(client, auth, modules, policy
 @pytest.mark.django_db
 def test_inactive_plans_are_not_sold(client, auth, modules, policy, currencies):
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PETTY_CASH", display_name="Petty Cash",
-        amount=28000, currency="HKD", interval_months=1, is_active=False,
+        id=uuid.uuid4(),
+        code="PETTY_CASH",
+        display_name="Petty Cash",
+        amount=28000,
+        currency="HKD",
+        interval_months=1,
+        is_active=False,
     )
     body = client.get(PLANS, **auth).json()
     assert body["plans"] == []
@@ -237,9 +260,7 @@ def test_trial_days_comes_from_policy(client, auth, plans, modules, policy):
 
 
 @pytest.mark.django_db
-def test_missing_policy_row_falls_back_to_the_shipped_default(
-    client, auth, plans, modules
-):
+def test_missing_policy_row_falls_back_to_the_shipped_default(client, auth, plans, modules):
     """No billing_policy row -- a database predating the migration, or a fresh test DB.
 
     Quiet, not an error: the default IS the shipped behaviour. Answering 0 would tell the
@@ -253,8 +274,13 @@ def test_missing_policy_row_falls_back_to_the_shipped_default(
 def test_interval_translates_months_to_a_vocabulary(client, auth, modules, policy, currencies):
     """12 months is a year. Stored as a number so a yearly plan needs no new column."""
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PETTY_CASH", display_name="Petty Cash",
-        amount=28000, currency="HKD", interval_months=12, is_active=True,
+        id=uuid.uuid4(),
+        code="PETTY_CASH",
+        display_name="Petty Cash",
+        amount=28000,
+        currency="HKD",
+        interval_months=12,
+        is_active=True,
     )
     body = client.get(PLANS, **auth).json()
     assert body["plans"][0]["billing_interval"] == "year"
@@ -282,8 +308,13 @@ def test_empty_catalog_answers_a_usable_shape(client, auth, modules, policy):
 def test_largest_bundle_wins(client, auth, plans, modules, policy):
     """A future three-module bundle must beat a two-module one, not depend on row order."""
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PAYMENT_REQUEST+PAYROLL+PETTY_CASH", display_name="Everything",
-        amount=50000, currency="HKD", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PAYMENT_REQUEST+PAYROLL+PETTY_CASH",
+        display_name="Everything",
+        amount=50000,
+        currency="HKD",
+        interval_months=1,
+        is_active=True,
     )
     body = client.get(PLANS, **auth).json()
     assert body["bundle_codes"] == ["PAYMENT_REQUEST", "PAYROLL", "PETTY_CASH"]

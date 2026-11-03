@@ -116,9 +116,7 @@ def create_entity(request, payload: CreateEntityIn):
     see entity_create.create_entity_for_user. From the wizard's point of view the outcome is
     identical: here is your company id.
     """
-    country = _resolved_country(
-        _first(payload.country_id, payload.country, payload.country_code)
-    )
+    country = _resolved_country(_first(payload.country_id, payload.country, payload.country_code))
     currency = _resolved_currency(
         _first(payload.currency_id, payload.currency, payload.currency_code)
     ) or _country_currency(country)
@@ -127,9 +125,7 @@ def create_entity(request, payload: CreateEntityIn):
     if not currency:
         raise OnboardingValidationError("Choose the company's currency.")
     if len(_first(payload.entity_name, payload.name).strip()) > NAME_MAX:
-        raise OnboardingValidationError(
-            f"Entity name must be {NAME_MAX} characters or fewer."
-        )
+        raise OnboardingValidationError(f"Entity name must be {NAME_MAX} characters or fewer.")
 
     phone, phone_error = resolve.contact_phone(payload.contact_phone)
     if phone_error:
@@ -153,9 +149,7 @@ def create_entity(request, payload: CreateEntityIn):
         # blanking a stored number because a resumed wizard omitted it would lose data the
         # user entered on a previous visit.
         entity.contact_phone = phone if created or phone is not None else entity.contact_phone
-        entity.business_email = (
-            email if created or email is not None else entity.business_email
-        )
+        entity.business_email = email if created or email is not None else entity.business_email
         entity.save(update_fields=["contact_phone", "business_email"])
     if tz_name:
         entity.timezone = tz_name
@@ -188,18 +182,14 @@ def update_entity(request, entity_id: str, payload: dict = Body(default={})):
 
     # --- Name: a rename is admin-only, re-checked on this crafted PUT ---------------
     if "entity_name" in payload or "name" in payload:
-        new_name = str(
-            payload.get("entity_name") or payload.get("name") or ""
-        ).strip()
+        new_name = str(payload.get("entity_name") or payload.get("name") or "").strip()
         if new_name != (entity.name or ""):
             if not has_permission_by_user_id(
                 request.auth_user_id, Permission.ENTITY_RENAME, entity_id
             ):
                 # 403 with Flask's wording. Note this is a DIFFERENT gate from membership:
                 # a cashier may reach this endpoint and still not be allowed to rename.
-                raise AccessDeniedError(
-                    "You don't have permission to rename this entity"
-                )
+                raise AccessDeniedError("You don't have permission to rename this entity")
             if not new_name:
                 raise OnboardingValidationError("Entity name is required.")
             if len(new_name) > NAME_MAX:
@@ -268,6 +258,8 @@ def update_entity(request, entity_id: str, payload: dict = Body(default={})):
                 # The denominations follow the currency; idempotent, so a re-save of the
                 # same currency keeps the company's own on/off and order.
                 sync_cash_settings(entity.id, currency)
-        logger.info("onboarding: entity %s updated (%s)", entity_id, ", ".join(sorted(set(changed))))
+        logger.info(
+            "onboarding: entity %s updated (%s)", entity_id, ", ".join(sorted(set(changed)))
+        )
 
     return {"entity_id": entity.id, "name": entity.name}

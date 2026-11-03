@@ -41,9 +41,7 @@ def post_create(client, auth, **payload):
 
 
 def put_entity(client, auth, entity_id, **payload):
-    return client.put(
-        put_url(entity_id), payload, content_type="application/json", **auth
-    )
+    return client.put(put_url(entity_id), payload, content_type="application/json", **auth)
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +66,9 @@ def test_a_new_company_has_no_saved_step(client, auth, countries, currencies, mo
 
 
 @pytest.mark.django_db
-def test_create_makes_the_caller_an_admin_member(client, auth, countries, currencies, user, modules):
+def test_create_makes_the_caller_an_admin_member(
+    client, auth, countries, currencies, user, modules
+):
     entity_id = post_create(client, auth, entity_name="Acme", **STEP1).json()["entity_id"]
     membership = UserEntity.objects.get(user_id=user.id, entity_id=entity_id)
     # admin, not super_admin -- ported from Flask's "the creator becomes the entity admin
@@ -122,7 +122,9 @@ def test_a_taken_name_is_409_not_400(client, auth, countries, currencies, module
 
 
 @pytest.mark.django_db
-def test_the_name_is_trimmed_before_the_uniqueness_check(client, auth, countries, currencies, modules):
+def test_the_name_is_trimmed_before_the_uniqueness_check(
+    client, auth, countries, currencies, modules
+):
     Entity.objects.create(id=str(uuid.uuid4()), name="Trimmed Co", status="disconnected")
     assert post_create(client, auth, entity_name="  Trimmed Co  ", **STEP1).status_code == 409
 
@@ -161,7 +163,9 @@ def test_reuse_does_not_duplicate_the_seeded_rows(client, auth, countries, curre
 
 
 @pytest.mark.django_db
-def test_idempotency_does_not_match_a_finalized_company(client, auth, countries, currencies, user, modules):
+def test_idempotency_does_not_match_a_finalized_company(
+    client, auth, countries, currencies, user, modules
+):
     """DELIBERATELY NARROW: the key is (member, name, status='onboarding').
 
     If it matched a finalized company, re-submitting Step 1 would silently rebind the wizard
@@ -174,18 +178,20 @@ def test_idempotency_does_not_match_a_finalized_company(client, auth, countries,
 
 
 @pytest.mark.django_db
-def test_idempotency_is_scoped_to_the_caller(client, auth, countries, currencies, other_user, modules):
+def test_idempotency_is_scoped_to_the_caller(
+    client, auth, countries, currencies, other_user, modules
+):
     """Another user's abandoned company is a name conflict, not something to adopt."""
-    theirs = Entity.objects.create(
-        id=str(uuid.uuid4()), name="Theirs Co", status="onboarding"
-    )
+    theirs = Entity.objects.create(id=str(uuid.uuid4()), name="Theirs Co", status="onboarding")
     UserEntity.objects.create(user_id=other_user.id, entity_id=theirs.id, role="admin")
     resp = post_create(client, auth, entity_name="Theirs Co", **STEP1)
     assert resp.status_code == 409
 
 
 @pytest.mark.django_db
-def test_reuse_keeps_contact_details_the_wizard_did_not_resend(client, auth, currencies, modules, countries):
+def test_reuse_keeps_contact_details_the_wizard_did_not_resend(
+    client, auth, currencies, modules, countries
+):
     """A resumed wizard that omits the phone must not blank a stored one.
 
     The user typed it on a previous visit; an omitted key is not an instruction to delete.
@@ -264,13 +270,19 @@ def test_a_new_company_is_linked_to_cash_only(client, auth, countries, currencie
     links = list(EntitySaleSetting.objects.filter(entity_id=entity_id).select_related("sale"))
     assert len(links) == 1
     cash = links[0]
-    assert cash.sale.type == "other" and cash.sale.sale_name == "Cash" and cash.sale.value_name == "cash_sales"
+    assert (
+        cash.sale.type == "other"
+        and cash.sale.sale_name == "Cash"
+        and cash.sale.value_name == "cash_sales"
+    )
     assert cash.is_active
 
 
 @requires_postgres  # reads /state (a Postgres view)
 @pytest.mark.django_db
-def test_a_new_company_shows_no_sales_methods_in_state(client, auth, countries, currencies, modules):
+def test_a_new_company_shows_no_sales_methods_in_state(
+    client, auth, countries, currencies, modules
+):
     """The wizard's electronic and delivery lists come from /state; both start empty."""
     entity_id = post_create(client, auth, entity_name="Empty Co", **STEP1).json()["entity_id"]
     resp = client.get(f"/api/onboarding/state?entity_id={entity_id}", **auth)
@@ -279,10 +291,16 @@ def test_a_new_company_shows_no_sales_methods_in_state(client, auth, countries, 
 
 
 @pytest.mark.django_db
-def test_defaults_already_in_the_catalogue_are_linked_not_duplicated(client, auth, countries, currencies, modules):
+def test_defaults_already_in_the_catalogue_are_linked_not_duplicated(
+    client, auth, countries, currencies, modules
+):
     """A catalogue that already has Cash (any spelling) gets no second Cash row."""
     cash = SaleInfo.objects.create(
-        id=uuid.uuid4(), sale_name="CASH", type="other", value_name="cash_sales", enabled=True,
+        id=uuid.uuid4(),
+        sale_name="CASH",
+        type="other",
+        value_name="cash_sales",
+        enabled=True,
     )
     entity_id = post_create(client, auth, entity_name="Catalog Co", **STEP1).json()["entity_id"]
     assert SaleInfo.objects.filter(value_name="cash_sales").count() == 1
@@ -290,11 +308,18 @@ def test_defaults_already_in_the_catalogue_are_linked_not_duplicated(client, aut
 
 
 @pytest.mark.django_db
-def test_another_companys_custom_method_is_not_a_default(client, auth, countries, currencies, modules, entity):
+def test_another_companys_custom_method_is_not_a_default(
+    client, auth, countries, currencies, modules, entity
+):
     """The catalogue is global, but a new company starts with the DEFAULT set only."""
-    SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Someone's Method", type="electronic", enabled=True)
+    SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="Someone's Method", type="electronic", enabled=True
+    )
     new_id = post_create(client, auth, entity_name="Other Co", **STEP1).json()["entity_id"]
-    names = {s.sale.sale_name for s in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")}
+    names = {
+        s.sale.sale_name
+        for s in EntitySaleSetting.objects.filter(entity_id=new_id).select_related("sale")
+    }
     assert "Someone's Method" not in names
     assert names == {"Cash"}
 
@@ -338,9 +363,7 @@ def test_an_ambiguous_country_prefix_resolves_to_nothing(client, auth, countries
 
 
 @pytest.mark.django_db
-def test_a_like_wildcard_does_not_match_an_arbitrary_country(
-    client, auth, countries, modules
-):
+def test_a_like_wildcard_does_not_match_an_arbitrary_country(client, auth, countries, modules):
     """``%`` must resolve to nothing.
 
     Flask escapes LIKE metacharacters by hand before its ``ilike`` calls. Django's
@@ -413,7 +436,9 @@ def test_phone_is_checked_server_side(client, auth, currencies, modules, countri
 @pytest.mark.parametrize(
     "email", ["no-at-sign", "@nolocal.com", "nodomain@", "a b@c.com", "a@b@c.com", "nodot@domain"]
 )
-def test_business_email_rejects_the_obviously_broken(client, auth, countries, currencies, modules, email):
+def test_business_email_rejects_the_obviously_broken(
+    client, auth, countries, currencies, modules, email
+):
     resp = post_create(client, auth, entity_name="Email Co", **STEP1, business_email=email)
     assert resp.status_code == 400
     assert resp.json() == {"error": "Please enter a valid business email."}
@@ -426,9 +451,7 @@ def test_business_email_is_english_only(client, auth, countries, currencies, mod
     company is created, like every contact-detail refusal."""
     resp = post_create(client, auth, entity_name="Korean Email Co", **STEP1, business_email=email)
     assert resp.status_code == 400
-    assert resp.json() == {
-        "error": "Email can only contain English letters, numbers and symbols."
-    }
+    assert resp.json() == {"error": "Email can only contain English letters, numbers and symbols."}
     assert not Entity.objects.filter(name="Korean Email Co").exists()
 
 
@@ -440,15 +463,15 @@ def test_update_holds_the_business_email_to_the_same_rule(client, auth, entity, 
     resp = put_entity(client, auth, entity.id, business_email="김철수@walk.test")
 
     assert resp.status_code == 400
-    assert resp.json() == {
-        "error": "Email can only contain English letters, numbers and symbols."
-    }
+    assert resp.json() == {"error": "Email can only contain English letters, numbers and symbols."}
     entity.refresh_from_db()
     assert entity.business_email == "old@example.com"
 
 
 @pytest.mark.django_db
-def test_business_email_validation_is_deliberately_shallow(client, auth, countries, currencies, modules):
+def test_business_email_validation_is_deliberately_shallow(
+    client, auth, countries, currencies, modules
+):
     """One @ with something either side. The column never authenticates anybody and nothing
     is sent to it to confirm it, so a stricter parser would reject legitimate addresses for
     no gain."""
@@ -459,7 +482,9 @@ def test_business_email_validation_is_deliberately_shallow(client, auth, countri
 
 
 @pytest.mark.django_db
-def test_contact_details_are_validated_before_the_company_is_created(client, auth, countries, currencies, modules):
+def test_contact_details_are_validated_before_the_company_is_created(
+    client, auth, countries, currencies, modules
+):
     """A bad phone must be a 400, not a half-saved company the user has to find again."""
     post_create(client, auth, entity_name="Atomic Co", **STEP1, contact_phone="123")
     assert not Entity.objects.filter(name="Atomic Co").exists()
@@ -481,7 +506,9 @@ def test_create_without_a_country_is_a_400_and_creates_nothing(
 
 
 @pytest.mark.django_db
-def test_create_with_neither_country_nor_currency_is_a_400(client, auth, countries, currencies, modules):
+def test_create_with_neither_country_nor_currency_is_a_400(
+    client, auth, countries, currencies, modules
+):
     resp = post_create(client, auth, entity_name="Bare Co")
     assert resp.status_code == 400
     assert resp.json() == {"error": "Choose the company's country."}
@@ -594,9 +621,7 @@ def test_an_explicit_currency_beats_the_derived_one(
 
 
 @pytest.mark.django_db
-def test_update_sets_currency_format_from_the_symbol(
-    client, auth, entity, currencies, modules
-):
+def test_update_sets_currency_format_from_the_symbol(client, auth, entity, currencies, modules):
     put_entity(client, auth, entity.id, currency_id="HKD")
     entity.refresh_from_db()
     assert entity.currency_format == "HK$"
@@ -621,9 +646,7 @@ def test_create_does_not_set_currency_format(client, auth, countries, currencies
     match would change what a created row contains, and this port is not the place to decide
     that -- but it should be visible rather than discovered later.
     """
-    entity_id = post_create(
-        client, auth, entity_name="No Format Co", **STEP1
-    ).json()["entity_id"]
+    entity_id = post_create(client, auth, entity_name="No Format Co", **STEP1).json()["entity_id"]
     assert Entity.objects.get(id=entity_id).currency_format is None
 
 
@@ -631,8 +654,12 @@ def test_create_does_not_set_currency_format(client, auth, countries, currencies
 # Cash denominations follow the currency
 # ---------------------------------------------------------------------------
 def cash_ids(entity_id):
-    return {str(c) for c in EntityCashSetting.objects.filter(entity_id=entity_id)
-            .values_list("cash_id", flat=True)}
+    return {
+        str(c)
+        for c in EntityCashSetting.objects.filter(entity_id=entity_id).values_list(
+            "cash_id", flat=True
+        )
+    }
 
 
 def ids(rows):
@@ -643,9 +670,7 @@ def ids(rows):
 def test_create_copies_the_currency_s_active_denominations(
     client, auth, countries, currencies, cash_catalogue, modules
 ):
-    entity_id = post_create(
-        client, auth, entity_name="Cash Co", **STEP1
-    ).json()["entity_id"]
+    entity_id = post_create(client, auth, entity_name="Cash Co", **STEP1).json()["entity_id"]
     assert cash_ids(entity_id) == ids(cash_catalogue["HKD"])  # the retired $1000 is left out
     rows = EntityCashSetting.objects.filter(entity_id=entity_id)
     assert all(r.is_active for r in rows)
@@ -798,9 +823,12 @@ def test_an_unresolvable_country_on_update_changes_nothing(
 # Round 2 (2026-10-13): the browser's timezone, the country's currency, the creator's join date
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_the_browser_timezone_is_saved_on_create_and_edit(client, auth, countries, currencies, modules):
-    entity_id = post_create(client, auth, entity_name="Tz Co", **STEP1,
-                            timezone="Asia/Hong_Kong").json()["entity_id"]
+def test_the_browser_timezone_is_saved_on_create_and_edit(
+    client, auth, countries, currencies, modules
+):
+    entity_id = post_create(
+        client, auth, entity_name="Tz Co", **STEP1, timezone="Asia/Hong_Kong"
+    ).json()["entity_id"]
     assert Entity.objects.get(id=entity_id).timezone == "Asia/Hong_Kong"
 
     assert put_entity(client, auth, entity_id, timezone="Asia/Singapore").status_code == 200
@@ -808,7 +836,9 @@ def test_the_browser_timezone_is_saved_on_create_and_edit(client, auth, countrie
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("value", ["Mars/Olympus", "not a zone", "America/Argentina/ComodRivadavia"])
+@pytest.mark.parametrize(
+    "value", ["Mars/Olympus", "not a zone", "America/Argentina/ComodRivadavia"]
+)
 def test_an_unusable_timezone_is_400(client, auth, countries, currencies, modules, value):
     """Unknown to the IANA database, or longer than the 30-character column."""
     resp = post_create(client, auth, entity_name="Bad Tz Co", **STEP1, timezone=value)
@@ -823,12 +853,16 @@ def test_create_takes_the_country_s_currency_when_none_is_sent(
     from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
-    entity_id = post_create(client, auth, entity_name="Country Co", country_id="HK").json()["entity_id"]
+    entity_id = post_create(client, auth, entity_name="Country Co", country_id="HK").json()[
+        "entity_id"
+    ]
     assert str(Entity.objects.get(id=entity_id).currency_id) == str(currencies["HKD"].id)
 
 
 @pytest.mark.django_db
-def test_the_creator_joins_when_the_company_is_created(client, auth, countries, currencies, user, modules):
+def test_the_creator_joins_when_the_company_is_created(
+    client, auth, countries, currencies, user, modules
+):
     entity_id = post_create(client, auth, entity_name="Join Co", **STEP1).json()["entity_id"]
     membership = UserEntity.objects.get(entity_id=entity_id, user_id=user.id)
     assert membership.joined_at is not None

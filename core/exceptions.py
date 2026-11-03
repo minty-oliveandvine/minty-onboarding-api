@@ -68,10 +68,20 @@ class UpstreamError(Exception):
 # django-ninja puts the param source in the first segment of ``loc`` and, for a
 # body model, the schema argument name in the second. Neither means anything to
 # the person reading the message.
-_LOC_NOISE = frozenset({
-    "body", "query", "path", "form", "header", "cookie", "file",
-    "payload", "data", "request",
-})
+_LOC_NOISE = frozenset(
+    {
+        "body",
+        "query",
+        "path",
+        "form",
+        "header",
+        "cookie",
+        "file",
+        "payload",
+        "data",
+        "request",
+    }
+)
 
 
 def _field_names(errors):
@@ -112,8 +122,7 @@ def validation_message(errors):
     if not names:
         return "Some of those details didn't look right. Mind checking them?"
     joined = _join(names)
-    if all(str(e.get("type", "")).startswith("missing")
-           for e in errors if isinstance(e, dict)):
+    if all(str(e.get("type", "")).startswith("missing") for e in errors if isinstance(e, dict)):
         return f"I still need {joined} to continue."
     return f"Mind checking {joined}? That didn't look quite right."
 
@@ -139,9 +148,7 @@ def register_exception_handlers(api):
     def on_schema_validation(request, exc):
         # The structured errors stay in the log; the body carries the sentence.
         logger.warning("Schema validation error: %s", exc.errors)
-        return api.create_response(
-            request, {"error": validation_message(exc.errors)}, status=400
-        )
+        return api.create_response(request, {"error": validation_message(exc.errors)}, status=400)
 
     @api.exception_handler(OnboardingValidationError)
     def on_validation(request, exc):

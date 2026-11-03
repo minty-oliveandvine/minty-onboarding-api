@@ -44,9 +44,7 @@ def is_member(user_id, entity_id: str) -> bool:
     still read ``/state`` and resume, and is refused anything that needs a role.
     tests/test_policy.py pins both halves.
     """
-    return UserEntity.objects.filter(
-        user_id=str(user_id), entity_id=entity_id
-    ).exists()
+    return UserEntity.objects.filter(user_id=str(user_id), entity_id=entity_id).exists()
 
 
 def entity_for_member(user_id, entity_id) -> Entity:

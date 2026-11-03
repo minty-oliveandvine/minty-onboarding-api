@@ -182,9 +182,7 @@ def describe_diff(a, b, trail=""):
     """The first few concrete differences, without dumping hundreds of rows."""
     out = []
     if type(a) is not type(b):
-        return [
-            f"{trail or '<root>'}: type flask={type(a).__name__} django={type(b).__name__}"
-        ]
+        return [f"{trail or '<root>'}: type flask={type(a).__name__} django={type(b).__name__}"]
     if isinstance(a, dict):
         for key in sorted(set(a) | set(b)):
             if key not in a:
@@ -241,10 +239,7 @@ def compare(client, tally, group, path, token, params, entity_id):
         # Every difference is one we registered a reason for. Printed rather than
         # swallowed: "the only diff is the one we intended" is the claim being made, and it
         # should be visible on every run.
-        print(
-            f"  EXPECTED {label}  ({flask_status})  "
-            f"diffs: {', '.join(sorted(actual))}"
-        )
+        print(f"  EXPECTED {label}  ({flask_status})  diffs: {', '.join(sorted(actual))}")
         tally.expected += 1
         return
 

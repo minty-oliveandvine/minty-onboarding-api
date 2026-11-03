@@ -162,16 +162,18 @@ PERMISSION_RULES: dict[Permission, PermissionRule] = {
 
 #: What a superuser may do on an entity they hold no membership on. Views only --
 #: every write is refused even though their effective role resolves to super_admin.
-READONLY_ALLOWED_PERMISSIONS: frozenset[Permission] = frozenset({
-    Permission.USER_VIEW_ALL,
-    Permission.ENTITY_VIEW,
-    Permission.MODULE_VIEW,
-    Permission.SALES_METHOD_VIEW,
-    Permission.COA_VIEW,
-    Permission.XERO_SETTINGS_VIEW,
-    Permission.REPORT_VIEW_OWN,
-    Permission.REPORT_VIEW_ENTITY,
-})
+READONLY_ALLOWED_PERMISSIONS: frozenset[Permission] = frozenset(
+    {
+        Permission.USER_VIEW_ALL,
+        Permission.ENTITY_VIEW,
+        Permission.MODULE_VIEW,
+        Permission.SALES_METHOD_VIEW,
+        Permission.COA_VIEW,
+        Permission.XERO_SETTINGS_VIEW,
+        Permission.REPORT_VIEW_OWN,
+        Permission.REPORT_VIEW_ENTITY,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -201,17 +203,11 @@ def legacy_role_to_system_role(role: Any) -> str:
     if role is None:
         return SYSTEM_ROLE_NORMAL
     normalized = str(role).strip().lower().replace(" ", "_").replace("-", "_")
-    return (
-        SYSTEM_ROLE_SUPERUSER
-        if normalized in LEGACY_SUPERUSER_ROLES
-        else SYSTEM_ROLE_NORMAL
-    )
+    return SYSTEM_ROLE_SUPERUSER if normalized in LEGACY_SUPERUSER_ROLES else SYSTEM_ROLE_NORMAL
 
 
 def role_at_least(role: Any, minimum_role: Any) -> bool:
-    return ROLE_RANK.get(normalize_role(role), 0) >= ROLE_RANK.get(
-        normalize_role(minimum_role), 0
-    )
+    return ROLE_RANK.get(normalize_role(role), 0) >= ROLE_RANK.get(normalize_role(minimum_role), 0)
 
 
 # ---------------------------------------------------------------------------

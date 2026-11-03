@@ -89,9 +89,7 @@ def test_unknown_user_is_refused(client, plans, modules, policy):
         "token abc123",
     ],
 )
-def test_malformed_authorization_headers_are_refused(
-    client, header, plans, modules, policy
-):
+def test_malformed_authorization_headers_are_refused(client, header, plans, modules, policy):
     resp = client.get(PLANS, HTTP_AUTHORIZATION=header)
     assert resp.status_code == 401
 
@@ -153,7 +151,12 @@ def _token_stamped_at(user, offset):
 
     at = datetime.now(UTC) + offset
     return jwt.encode(
-        {"user_id": str(user.id), "scope": "onboarding", "iat": at, "exp": at + timedelta(minutes=60)},
+        {
+            "user_id": str(user.id),
+            "scope": "onboarding",
+            "iat": at,
+            "exp": at + timedelta(minutes=60),
+        },
         settings.SECRET_KEY,
         algorithm="HS256",
     )

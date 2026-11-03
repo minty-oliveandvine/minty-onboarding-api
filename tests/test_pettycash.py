@@ -40,7 +40,9 @@ def post_json(client, auth, url, payload):
 
 def set_methods(client, auth, entity, electronic=(), delivery=()):
     return post_json(
-        client, auth, SALES,
+        client,
+        auth,
+        SALES,
         {
             "entity_id": entity.id,
             "electronic": list(electronic),
@@ -121,8 +123,12 @@ def test_a_rename_of_capitalisation_keeps_the_link_and_the_catalogue_row(client,
     """Matching is case-insensitive: "VISA" is the catalogue's "Visa", so the company's link
     is kept (and with it the form-field name its historical figures are keyed by)."""
     SaleInfo.objects.create(
-        id=uuid.uuid4(), sale_name="Visa", type="electronic", value_name="visa_sales",
-        enabled=True, display_order=1,
+        id=uuid.uuid4(),
+        sale_name="Visa",
+        type="electronic",
+        value_name="visa_sales",
+        enabled=True,
+        display_order=1,
     )
     set_methods(client, auth, entity, electronic=["Visa"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
@@ -150,7 +156,9 @@ def test_blank_names_are_dropped(client, auth, entity):
 @pytest.mark.django_db
 def test_a_non_list_is_rejected(client, auth, entity):
     resp = post_json(
-        client, auth, SALES,
+        client,
+        auth,
+        SALES,
         {"entity_id": entity.id, "electronic": "Visa", "delivery": []},
     )
     assert resp.status_code == 400
@@ -165,10 +173,16 @@ def test_cash_is_untouched_by_this_screen(client, auth, entity):
     list must not disable it.
     """
     cash = SaleInfo.objects.create(
-        id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales",
-        enabled=True, display_order=0,
+        id=uuid.uuid4(),
+        sale_name="Cash",
+        type="other",
+        value_name="cash_sales",
+        enabled=True,
+        display_order=0,
     )
-    EntitySaleSetting.objects.create(entity_id=entity.id, sale=cash, is_active=True, display_order=0)
+    EntitySaleSetting.objects.create(
+        entity_id=entity.id, sale=cash, is_active=True, display_order=0
+    )
     set_methods(client, auth, entity, electronic=[], delivery=[])
     assert EntitySaleSetting.objects.get(entity_id=entity.id, sale=cash).is_active is True
 
@@ -200,8 +214,12 @@ def test_the_same_custom_name_does_not_mint_a_second_catalogue_row(client, auth,
 @pytest.mark.django_db
 def test_an_existing_catalogue_row_is_linked_rather_than_duplicated(client, auth, entity):
     SaleInfo.objects.create(
-        id=uuid.uuid4(), sale_name="Octopus", type="electronic", value_name="octopus_sales",
-        enabled=True, display_order=7,
+        id=uuid.uuid4(),
+        sale_name="Octopus",
+        type="electronic",
+        value_name="octopus_sales",
+        enabled=True,
+        display_order=7,
     )
     set_methods(client, auth, entity, electronic=["octopus"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
@@ -212,8 +230,12 @@ def test_an_existing_catalogue_row_is_linked_rather_than_duplicated(client, auth
 @pytest.mark.django_db
 def test_two_companies_share_one_catalogue_row(client, auth, user, entity, countries):
     """The catalogue is global (sale_name is unique); each company's on/off is its own."""
-    other = Entity.objects.create(id=str(uuid.uuid4()), name="Other Co", country_code="HK", status="onboarding")
-    UserEntity.objects.create(user_id=user.id, entity_id=other.id, role="super_admin", approved=True)
+    other = Entity.objects.create(
+        id=str(uuid.uuid4()), name="Other Co", country_code="HK", status="onboarding"
+    )
+    UserEntity.objects.create(
+        user_id=user.id, entity_id=other.id, role="super_admin", approved=True
+    )
 
     set_methods(client, auth, entity, electronic=["Payme"])
     set_methods(client, auth, other, electronic=["payme"])
@@ -230,7 +252,8 @@ def test_two_companies_share_one_catalogue_row(client, auth, user, entity, count
 @pytest.mark.django_db
 def test_sales_methods_require_membership(client, other_user, entity):
     resp = client.get(
-        SALES, {"entity_id": entity.id},
+        SALES,
+        {"entity_id": entity.id},
         HTTP_AUTHORIZATION=f"Bearer {make_token(other_user.id)}",
     )
     assert resp.status_code == 403
@@ -260,8 +283,14 @@ def _entity_has_a_currency(request):
     from minty_db.models import CurrencyInfo
 
     entity = request.getfixturevalue("entity")
-    hkd = CurrencyInfo.objects.create(id=uuid.uuid4(), currency_code="HKD", currency_name="Hong Kong Dollar",
-                                      symbol="HK$", decimal_places=2, is_active=True)
+    hkd = CurrencyInfo.objects.create(
+        id=uuid.uuid4(),
+        currency_code="HKD",
+        currency_name="Hong Kong Dollar",
+        symbol="HK$",
+        decimal_places=2,
+        is_active=True,
+    )
     Entity.objects.filter(id=entity.id).update(currency_id=hkd.id)
 
 
@@ -273,7 +302,9 @@ def _settings(entity):
 def test_opening_balance_lands_on_the_settings_row(client, auth, entity):
     today = date.today()
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": today.isoformat(), "cash_addition": 1500.0},
     )
     assert resp.status_code == 200
@@ -292,7 +323,9 @@ def test_opening_balance_lands_on_the_settings_row(client, auth, entity):
 def test_no_report_is_written(client, auth, entity):
     """The first report reads the settings when it is opened; onboarding seeds no draft."""
     post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 9},
     )
     assert not Report.objects.filter(entity_id=entity.id).exists()
@@ -302,17 +335,27 @@ def test_no_report_is_written(client, auth, entity):
 def test_an_existing_settings_row_is_updated_not_replaced(client, auth, entity):
     """Step 6 may have created the row first; its account mapping must survive."""
     account = AccountInfo.objects.create(
-        id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",
-        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+        id=uuid.uuid4(),
+        entity_id=entity.id,
+        type="EXPENSE",
+        name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()),
+        xero_code="090",
+        status="ACTIVE",
     ).id
     EntityPettycashSettings.objects.create(entity_id=entity.id, pettycash_account_id=account)
     first = date.today() - timedelta(days=5)
     second = date.today() - timedelta(days=2)
     for day, amount in ((first, 100), (second, 250)):
-        assert post_json(
-            client, auth, OPENING,
-            {"entity_id": entity.id, "opening_date": day.isoformat(), "cash_addition": amount},
-        ).status_code == 200
+        assert (
+            post_json(
+                client,
+                auth,
+                OPENING,
+                {"entity_id": entity.id, "opening_date": day.isoformat(), "cash_addition": amount},
+            ).status_code
+            == 200
+        )
 
     assert EntityPettycashSettings.objects.filter(entity_id=entity.id).count() == 1
     row = _settings(entity)
@@ -326,12 +369,17 @@ def test_an_existing_settings_row_is_updated_not_replaced(client, auth, entity):
 def test_once_a_report_is_posted_it_is_409(client, auth, entity, status):
     """The first report already took its opening from the settings; a change would do nothing."""
     Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status=status,
+        id=str(uuid.uuid4()),
+        entity_id=entity.id,
+        status=status,
         transaction_date=date.today() - timedelta(days=10),
-        opening_balance=0.0, cash_addition=0.0,
+        opening_balance=0.0,
+        cash_addition=0.0,
     )
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 10},
     )
     assert resp.status_code == 409
@@ -343,9 +391,12 @@ def test_a_draft_report_does_not_block_a_save(client, auth, entity):
     """Only a POSTED report ends onboarding; an entity onboarded before the settings
     columns were used still has its seeded draft."""
     Report.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, status="draft",
+        id=str(uuid.uuid4()),
+        entity_id=entity.id,
+        status="draft",
         transaction_date=date.today() - timedelta(days=3),
-        opening_balance=5.0, cash_addition=0.0,
+        opening_balance=5.0,
+        cash_addition=0.0,
     )
     body = {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 100}
     assert post_json(client, auth, OPENING, body).status_code == 200
@@ -356,7 +407,9 @@ def test_a_draft_report_does_not_block_a_save(client, auth, entity):
 def test_a_future_date_is_refused(client, auth, entity):
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": tomorrow, "cash_addition": 10},
     )
     assert resp.status_code == 400
@@ -369,7 +422,9 @@ def test_an_old_past_date_is_allowed(client, auth, entity):
     """Onboarding deliberately has NO seven-day window."""
     old = (date.today() - timedelta(days=25)).isoformat()
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": old, "cash_addition": 10},
     )
     assert resp.status_code == 200
@@ -379,7 +434,9 @@ def test_an_old_past_date_is_allowed(client, auth, entity):
 @pytest.mark.parametrize("value", ["", None, "13/09/2026", "not-a-date"])
 def test_a_bad_date_is_400(client, auth, entity, value):
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": value, "cash_addition": 10},
     )
     assert resp.status_code == 400
@@ -388,9 +445,10 @@ def test_a_bad_date_is_400(client, auth, entity, value):
 @pytest.mark.django_db
 def test_a_negative_amount_is_refused(client, auth, entity):
     resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
-         "cash_addition": -5},
+        client,
+        auth,
+        OPENING,
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": -5},
     )
     assert resp.status_code == 400
     assert resp.json() == {"error": "Opening amount cannot be negative"}
@@ -399,14 +457,21 @@ def test_a_negative_amount_is_refused(client, auth, entity):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "amount",
-    [{"opening_balance": ""}, {"opening_balance": "   "}, {"opening_balance": None},
-     {"cash_addition": ""}, {}],
+    [
+        {"opening_balance": ""},
+        {"opening_balance": "   "},
+        {"opening_balance": None},
+        {"cash_addition": ""},
+        {},
+    ],
 )
 def test_a_blank_amount_is_refused_not_saved_as_zero(client, auth, entity, amount):
     """A blank is not 0: the wizard never sends one (it skips the call), so a blank that
     arrives is a missing amount, and saving 0 would open the first report at nothing."""
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), **amount},
     )
     assert resp.status_code == 400
@@ -420,9 +485,14 @@ def test_a_blank_amount_is_refused_not_saved_as_zero(client, auth, entity, amoun
 @pytest.mark.parametrize("value", ["abc", "NaN", "Infinity"])
 def test_a_non_number_amount_is_400(client, auth, entity, value):
     resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
-         "opening_balance": value},
+        client,
+        auth,
+        OPENING,
+        {
+            "entity_id": entity.id,
+            "opening_date": date.today().isoformat(),
+            "opening_balance": value,
+        },
     )
     assert resp.status_code == 400
     assert _settings(entity) is None
@@ -431,9 +501,14 @@ def test_a_non_number_amount_is_400(client, auth, entity, value):
 @pytest.mark.django_db
 def test_opening_balance_is_accepted_as_the_legacy_amount_key(client, auth, entity):
     resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "transaction_date": date.today().isoformat(),
-         "opening_balance": "42.50"},
+        client,
+        auth,
+        OPENING,
+        {
+            "entity_id": entity.id,
+            "transaction_date": date.today().isoformat(),
+            "opening_balance": "42.50",
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["opening_balance"] == 42.5
@@ -444,8 +519,7 @@ def test_opening_balance_is_accepted_as_the_legacy_amount_key(client, auth, enti
 def test_opening_balance_requires_membership(client, other_user, entity):
     resp = client.post(
         OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(),
-         "cash_addition": 1},
+        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 1},
         content_type="application/json",
         HTTP_AUTHORIZATION=f"Bearer {make_token(other_user.id)}",
     )
@@ -456,9 +530,7 @@ def test_opening_balance_requires_membership(client, other_user, entity):
 # D2 -- the proxies. About forwarding, not about Xero.
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_a_proxied_endpoint_forwards_and_relays_the_status(
-    client, auth, entity, monkeypatch
-):
+def test_a_proxied_endpoint_forwards_and_relays_the_status(client, auth, entity, monkeypatch):
     """Flask's status reaches the wizard as itself.
 
     409 here means "connect to Xero first", and the wizard has copy for exactly that. If the
@@ -498,10 +570,9 @@ def test_a_proxied_post_forwards_the_body_unchanged(client, auth, entity, monkey
 
 
 @pytest.mark.django_db
-def test_an_unreachable_flask_becomes_a_502_with_readable_copy(
-    client, auth, entity, monkeypatch
-):
+def test_an_unreachable_flask_becomes_a_502_with_readable_copy(client, auth, entity, monkeypatch):
     """Not an HTML error page, and not a traceback -- the wizard renders ``error`` in a toast."""
+
     def boom(request, path, **kwargs):
         raise UpstreamError(minty_client.UNREACHABLE, status=502)
 
@@ -532,7 +603,9 @@ def test_a_proxied_endpoint_requires_an_entity_id(client, auth):
 @pytest.mark.no_currency
 def test_the_opening_balance_needs_a_currency(client, auth, entity):
     resp = post_json(
-        client, auth, OPENING,
+        client,
+        auth,
+        OPENING,
         {"entity_id": entity.id, "opening_date": date.today().isoformat(), "cash_addition": 10},
     )
     assert resp.status_code == 400
@@ -543,7 +616,13 @@ def test_the_opening_balance_needs_a_currency(client, auth, entity):
 @pytest.mark.django_db
 def test_an_amount_finer_than_the_currency_is_400(client, auth, entity):
     resp = post_json(
-        client, auth, OPENING,
-        {"entity_id": entity.id, "opening_date": date.today().isoformat(), "opening_balance": "10.005"},
+        client,
+        auth,
+        OPENING,
+        {
+            "entity_id": entity.id,
+            "opening_date": date.today().isoformat(),
+            "opening_balance": "10.005",
+        },
     )
     assert resp.status_code == 400

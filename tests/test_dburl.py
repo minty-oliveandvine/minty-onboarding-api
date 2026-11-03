@@ -6,7 +6,9 @@ from config.dburl import DEFAULT_DATABASE_URL, database_url, parse_database_url
 
 
 def test_full_url_with_schema():
-    db, schema = parse_database_url("postgresql://app:secret@db.example:6543/minty?schema=pettycash_alt")
+    db, schema = parse_database_url(
+        "postgresql://app:secret@db.example:6543/minty?schema=pettycash_alt"
+    )
     assert schema == "pettycash_alt"
     assert db == {
         "ENGINE": "django.db.backends.postgresql",
@@ -75,7 +77,11 @@ def test_database_url_default(monkeypatch):
     assert database_url() == DEFAULT_DATABASE_URL == "postgresql://postgres@localhost:5432/postgres"
     db, schema = parse_database_url(database_url())
     assert (db["USER"], db["HOST"], db["PORT"], db["NAME"], schema) == (
-        "postgres", "localhost", "5432", "postgres", "pettycashv3"
+        "postgres",
+        "localhost",
+        "5432",
+        "postgres",
+        "pettycashv3",
     )
 
 

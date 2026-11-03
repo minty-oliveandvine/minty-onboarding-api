@@ -111,15 +111,18 @@ def _seed_default_sales_methods(entity_id: str) -> None:
             continue
         existing.add(catalog.id)
         rows.append(
-            EntitySaleSetting(entity_id=entity_id, sale=catalog, is_active=True, display_order=order)
+            EntitySaleSetting(
+                entity_id=entity_id, sale=catalog, is_active=True, display_order=order
+            )
         )
     if rows:
         EntitySaleSetting.objects.bulk_create(rows)
     logger.info("onboarding: linked %s default sales methods for entity %s", len(rows), entity_id)
 
 
-def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
-                          user_id=None) -> None:
+def _seed_module_defaults(
+    entity_id: str, state: dict[str, bool] | None = None, user_id=None
+) -> None:
     """Write one ``entity_function_map`` row per module, all disabled.
 
     THE GUARD: this refuses to write ``is_enabled=True``. Enabling a module is a
@@ -206,9 +209,7 @@ def find_resumable_entity(user_id, name: str) -> Entity | None:
             "entity_id", flat=True
         )
     ]
-    return Entity.objects.filter(
-        id__in=entity_ids, name=name, status="onboarding"
-    ).first()
+    return Entity.objects.filter(id__in=entity_ids, name=name, status="onboarding").first()
 
 
 def create_entity_for_user(

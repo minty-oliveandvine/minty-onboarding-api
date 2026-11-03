@@ -112,16 +112,28 @@ def currencies(db):
     units by a hardcoded 100 is exactly the bug the column exists to prevent.
     """
     hkd = CurrencyInfo.objects.create(
-        id=uuid.uuid4(), currency_code="HKD", currency_name="Hong Kong Dollar",
-        symbol="HK$", decimal_places=2, is_active=True,
+        id=uuid.uuid4(),
+        currency_code="HKD",
+        currency_name="Hong Kong Dollar",
+        symbol="HK$",
+        decimal_places=2,
+        is_active=True,
     )
     jpy = CurrencyInfo.objects.create(
-        id=uuid.uuid4(), currency_code="JPY", currency_name="Japanese Yen",
-        symbol="", decimal_places=0, is_active=True,
+        id=uuid.uuid4(),
+        currency_code="JPY",
+        currency_name="Japanese Yen",
+        symbol="",
+        decimal_places=0,
+        is_active=True,
     )
     CurrencyInfo.objects.create(
-        id=uuid.uuid4(), currency_code="ZWL", currency_name="Zimbabwe Dollar",
-        symbol="Z$", decimal_places=2, is_active=False,
+        id=uuid.uuid4(),
+        currency_code="ZWL",
+        currency_name="Zimbabwe Dollar",
+        symbol="Z$",
+        decimal_places=2,
+        is_active=False,
     )
     return {"HKD": hkd, "JPY": jpy}
 
@@ -142,8 +154,12 @@ def cash_catalogue(db, currencies):
         ("JPY", "coin", "100.00", 2, True),
     ):
         row = CashInfo.objects.create(
-            id=uuid.uuid4(), currency_id=currencies[code].id, type=kind,
-            cash_value=Decimal(value), display_order=order, is_active=active,
+            id=uuid.uuid4(),
+            currency_id=currencies[code].id,
+            type=kind,
+            cash_value=Decimal(value),
+            display_order=order,
+            is_active=active,
         )
         if active:
             rows[code].append(row)
@@ -163,8 +179,13 @@ def countries(db):
     ):
         CountryInfo.objects.update_or_create(
             country_code=code,
-            defaults={"alpha3_code": alpha3, "country_name_en": name,
-                      "is_active": active, "display_order": order, "phone_code": phone_code},
+            defaults={
+                "alpha3_code": alpha3,
+                "country_name_en": name,
+                "is_active": active,
+                "display_order": order,
+                "phone_code": phone_code,
+            },
         )
 
 
@@ -173,12 +194,16 @@ def modules(db):
     """The two canonical module catalog rows."""
     return {
         "PETTY_CASH": EntityFunction.objects.create(
-            id=str(uuid.uuid4()), function_code="PETTY_CASH",
-            function_name="Petty Cash", is_active=True,
+            id=str(uuid.uuid4()),
+            function_code="PETTY_CASH",
+            function_name="Petty Cash",
+            is_active=True,
         ),
         "PAYMENT_REQUEST": EntityFunction.objects.create(
-            id=str(uuid.uuid4()), function_code="PAYMENT_REQUEST",
-            function_name="Payment Request", is_active=True,
+            id=str(uuid.uuid4()),
+            function_code="PAYMENT_REQUEST",
+            function_name="Payment Request",
+            is_active=True,
         ),
     }
 
@@ -191,24 +216,42 @@ def plans(db, currencies):
     cheaper than the sum, which is what makes the discount assertions meaningful.
     """
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PETTY_CASH", display_name="Petty Cash",
-        amount=28000, currency="HKD", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PETTY_CASH",
+        display_name="Petty Cash",
+        amount=28000,
+        currency="HKD",
+        interval_months=1,
+        is_active=True,
     )
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PAYMENT_REQUEST", display_name="Payment Request",
-        amount=28000, currency="HKD", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PAYMENT_REQUEST",
+        display_name="Payment Request",
+        amount=28000,
+        currency="HKD",
+        interval_months=1,
+        is_active=True,
     )
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="PAYMENT_REQUEST+PETTY_CASH", display_name="Super Minty",
-        amount=40000, currency="HKD", interval_months=1, is_active=True,
+        id=uuid.uuid4(),
+        code="PAYMENT_REQUEST+PETTY_CASH",
+        display_name="Super Minty",
+        amount=40000,
+        currency="HKD",
+        interval_months=1,
+        is_active=True,
     )
 
 
 @pytest.fixture
 def policy(db):
     return BillingPolicy.objects.create(
-        id=1, trial_days=30, paid_cancel_access_days=30,
-        past_due_window_days=15, retry_offsets_days="1,2,3",
+        id=1,
+        trial_days=30,
+        paid_cancel_access_days=30,
+        past_due_window_days=15,
+        retry_offsets_days="1,2,3",
     )
 
 
@@ -218,12 +261,13 @@ def entity(db, user, countries):
 
     ``countries`` because ``entities.country_code`` is a real FK on Postgres."""
     e = Entity.objects.create(
-        id=str(uuid.uuid4()), name="Wizard Trading Co",
-        country_code="HK", status="onboarding", onboarding_saved_step=None,
+        id=str(uuid.uuid4()),
+        name="Wizard Trading Co",
+        country_code="HK",
+        status="onboarding",
+        onboarding_saved_step=None,
     )
-    UserEntity.objects.create(
-        user_id=user.id, entity_id=e.id, role="super_admin", approved=True
-    )
+    UserEntity.objects.create(user_id=user.id, entity_id=e.id, role="super_admin", approved=True)
     return e
 
 

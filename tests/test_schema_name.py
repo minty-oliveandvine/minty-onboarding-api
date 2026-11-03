@@ -45,7 +45,12 @@ def test_no_application_string_carries_the_schema_name():
         tree = ast.parse(source)
         docs = _docstrings(tree)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and NAME in node.value and id(node) not in docs:
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and NAME in node.value
+                and id(node) not in docs
+            ):
                 hits.append(f"{rel}:{node.lineno}")
     assert hits == [], "read settings.DB_SCHEMA instead of spelling the schema"
 

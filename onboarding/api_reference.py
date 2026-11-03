@@ -88,8 +88,12 @@ def currencies(request):
         "currencies": [
             # str(): see the uuid trap in the module header. decimal_places shapes the opening
             # balance field (step 5): JPY takes whole amounts.
-            {"currency_id": str(cid), "currency_name": name, "iso_code": code,
-             "decimal_places": places}
+            {
+                "currency_id": str(cid),
+                "currency_name": name,
+                "iso_code": code,
+                "decimal_places": places,
+            }
             for cid, name, code, places in rows
         ]
     }
@@ -152,9 +156,7 @@ def plans(request):
         # wizard "try again later", which is true, where 500 reads as "this is broken".
         import logging
 
-        logging.getLogger("minty-onboarding").exception(
-            "plans: could not load the plan catalog"
-        )
+        logging.getLogger("minty-onboarding").exception("plans: could not load the plan catalog")
         # Status(), not a tuple -- see api_entity.create_entity. This path had no test
         # reaching it, so the bare tuple would have surfaced as a 500 the first time
         # the catalog actually failed: the exact moment a clear answer matters most.

@@ -65,9 +65,7 @@ def test_missing_entity_id_is_400(client, auth):
 @pytest.mark.django_db
 def test_non_member_is_403(client, other_user, entity):
     token = make_token(other_user.id)
-    resp = client.get(
-        STATE, {"entity_id": entity.id}, HTTP_AUTHORIZATION=f"Bearer {token}"
-    )
+    resp = client.get(STATE, {"entity_id": entity.id}, HTTP_AUTHORIZATION=f"Bearer {token}")
     assert resp.status_code == 403
     assert resp.json() == {"error": "You don't have access to this entity"}
 
@@ -89,9 +87,7 @@ def test_unknown_entity_is_404_only_for_a_member(client, auth, user):
     from minty_db.models import Entity
 
     Entity.objects.create(id=ghost, name="Ghost Co", status="onboarding")
-    UserEntity.objects.create(
-        user_id=user.id, entity_id=ghost, role="super_admin", approved=True
-    )
+    UserEntity.objects.create(user_id=user.id, entity_id=ghost, role="super_admin", approved=True)
     Entity.objects.filter(id=ghost).delete()
     resp = client.get(STATE, {"entity_id": ghost}, **auth)
     if UserEntity.objects.filter(user_id=user.id, entity_id=ghost).exists():
@@ -108,12 +104,8 @@ def test_unknown_entity_is_404_only_for_a_member(client, auth, user):
 def test_a_stranger_cannot_tell_missing_from_forbidden(client, other_user, entity):
     """The probe-resistance property, asserted directly."""
     token = make_token(other_user.id)
-    real = client.get(
-        STATE, {"entity_id": entity.id}, HTTP_AUTHORIZATION=f"Bearer {token}"
-    )
-    fake = client.get(
-        STATE, {"entity_id": str(uuid.uuid4())}, HTTP_AUTHORIZATION=f"Bearer {token}"
-    )
+    real = client.get(STATE, {"entity_id": entity.id}, HTTP_AUTHORIZATION=f"Bearer {token}")
+    fake = client.get(STATE, {"entity_id": str(uuid.uuid4())}, HTTP_AUTHORIZATION=f"Bearer {token}")
     assert real.status_code == fake.status_code == 403
     assert real.json() == fake.json()
 
@@ -190,12 +182,15 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
     from minty_db.models import AccountInfo
 
     account = AccountInfo.objects.create(
-        id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",
-        xero_account_id=str(uuid.uuid4()), xero_code="090", status="ACTIVE",
+        id=uuid.uuid4(),
+        entity_id=entity.id,
+        type="EXPENSE",
+        name="Petty Cash",
+        xero_account_id=str(uuid.uuid4()),
+        xero_code="090",
+        status="ACTIVE",
     )
-    EntityPettycashSettings.objects.create(
-        entity_id=entity.id, pettycash_account_id=account.id
-    )
+    EntityPettycashSettings.objects.create(entity_id=entity.id, pettycash_account_id=account.id)
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_INVITE
 
 
@@ -341,9 +336,7 @@ def test_saved_step_requires_membership(client, other_user, entity):
 # Entity block -- presence matters, not just value
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_contact_fields_are_always_present_as_empty_strings(
-    client, auth, entity, modules
-):
+def test_contact_fields_are_always_present_as_empty_strings(client, auth, entity, modules):
     """The wizard's rehydration keys off PRESENCE, and an empty value is legitimate.
 
     So an unset phone must arrive as "" rather than being omitted or null -- otherwise the
@@ -389,9 +382,7 @@ def test_a_confirmed_revoke_clears_connection_state(
     entity.connected_by_user_id = user.id  # a uuid FK to user now
     entity.save()
 
-    monkeypatch.setattr(
-        xero_tokens, "connected_tenant_ids", lambda _eid: {str(uuid.uuid4())}
-    )
+    monkeypatch.setattr(xero_tokens, "connected_tenant_ids", lambda _eid: {str(uuid.uuid4())})
 
     body = state_of(client, auth, entity)
     assert body["xero"]["connected"] is False
@@ -401,9 +392,7 @@ def test_a_confirmed_revoke_clears_connection_state(
 
 
 @pytest.mark.django_db
-def test_an_unverifiable_connection_is_left_alone(
-    client, auth, entity, modules, monkeypatch
-):
+def test_an_unverifiable_connection_is_left_alone(client, auth, entity, modules, monkeypatch):
     """THE ASYMMETRY THIS WHOLE PATH EXISTS FOR.
 
     None means "could not verify" -- no connector, an unusable token, Xero unreachable, a
@@ -440,9 +429,7 @@ def test_a_still_connected_org_is_left_alone(client, auth, entity, modules, monk
 def test_no_xero_org_does_not_call_xero_at_all(client, auth, entity, modules, monkeypatch):
     """An unconnected entity must not cost a token request on every resume."""
     called = []
-    monkeypatch.setattr(
-        xero_tokens, "connected_tenant_ids", lambda eid: called.append(eid)
-    )
+    monkeypatch.setattr(xero_tokens, "connected_tenant_ids", lambda eid: called.append(eid))
     body = state_of(client, auth, entity)
     assert body["xero"] == {"connected": False, "org": ""}
     assert called == []
@@ -452,15 +439,16 @@ def test_no_xero_org_does_not_call_xero_at_all(client, auth, entity, modules, mo
 # Sales methods and the opening balance
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_sales_methods_group_by_type_and_respect_display_order(
-    client, auth, entity, modules
-):
+def test_sales_methods_group_by_type_and_respect_display_order(client, auth, entity, modules):
     for i, (typ, name) in enumerate(
         [("electronic", "Visa"), ("delivery", "Foodpanda"), ("electronic", "Octopus")]
     ):
         catalog = SaleInfo.objects.create(id=uuid.uuid4(), sale_name=name, type=typ, enabled=True)
         EntitySaleSetting.objects.create(
-            entity_id=entity.id, sale=catalog, is_active=True, display_order=10 - i,
+            entity_id=entity.id,
+            sale=catalog,
+            is_active=True,
+            display_order=10 - i,
         )
     methods = state_of(client, auth, entity)["sales_methods"]
     # display_order ascending: Octopus (8), Foodpanda (9), Visa (10)
@@ -470,10 +458,18 @@ def test_sales_methods_group_by_type_and_respect_display_order(
 
 @pytest.mark.django_db
 def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entity, modules):
-    off = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Switched off", type="electronic", enabled=True)
-    cash = SaleInfo.objects.create(id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales", enabled=True)
-    EntitySaleSetting.objects.create(entity_id=entity.id, sale=off, is_active=False, display_order=1)
-    EntitySaleSetting.objects.create(entity_id=entity.id, sale=cash, is_active=True, display_order=1)
+    off = SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="Switched off", type="electronic", enabled=True
+    )
+    cash = SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name="Cash", type="other", value_name="cash_sales", enabled=True
+    )
+    EntitySaleSetting.objects.create(
+        entity_id=entity.id, sale=off, is_active=False, display_order=1
+    )
+    EntitySaleSetting.objects.create(
+        entity_id=entity.id, sale=cash, is_active=True, display_order=1
+    )
     assert state_of(client, auth, entity)["sales_methods"] == {
         "electronic": [],
         "delivery": [],
@@ -507,9 +503,12 @@ def test_a_report_is_not_the_opening_balance(client, auth, entity, modules):
     """A draft seeded before the settings columns were used is not read back."""
     for status in ("draft", "submitted"):
         Report.objects.create(
-            id=str(uuid.uuid4()), entity_id=entity.id, status=status,
+            id=str(uuid.uuid4()),
+            entity_id=entity.id,
+            status=status,
             transaction_date=date.today() - timedelta(days=1 if status == "draft" else 2),
-            opening_balance=123.0, cash_addition=0.0,
+            opening_balance=123.0,
+            cash_addition=0.0,
         )
     assert state_of(client, auth, entity)["opening_balance"] is None
 
@@ -520,9 +519,14 @@ def test_a_report_is_not_the_opening_balance(client, auth, entity, modules):
 @pytest.mark.django_db
 def test_pending_invites_are_listed_for_a_super_admin(client, auth, entity, modules):
     Invitation.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, email="new@example.com",
-        role="cashier", token=str(uuid.uuid4()), status="pending",
-        first_name="New", last_name="Hire",
+        id=str(uuid.uuid4()),
+        entity_id=entity.id,
+        email="new@example.com",
+        role="cashier",
+        token=str(uuid.uuid4()),
+        status="pending",
+        first_name="New",
+        last_name="Hire",
         created_at=datetime.now(UTC),
     )
     invites = state_of(client, auth, entity)["invites"]
@@ -534,8 +538,12 @@ def test_pending_invites_are_listed_for_a_super_admin(client, auth, entity, modu
 def test_non_pending_invites_are_excluded(client, auth, entity, modules):
     for status in ("accepted", "revoked"):
         Invitation.objects.create(
-            id=str(uuid.uuid4()), entity_id=entity.id, email=f"{status}@example.com",
-            role="cashier", token=str(uuid.uuid4()), status=status,
+            id=str(uuid.uuid4()),
+            entity_id=entity.id,
+            email=f"{status}@example.com",
+            role="cashier",
+            token=str(uuid.uuid4()),
+            status=status,
             created_at=datetime.now(UTC),
         )
     assert state_of(client, auth, entity)["invites"] == []
@@ -553,8 +561,12 @@ def test_a_cashier_gets_an_empty_invite_list_not_a_403(client, user, entity, mod
     """
     UserEntity.objects.filter(user_id=user.id, entity_id=entity.id).update(role="cashier")
     Invitation.objects.create(
-        id=str(uuid.uuid4()), entity_id=entity.id, email="hidden@example.com",
-        role="cashier", token=str(uuid.uuid4()), status="pending",
+        id=str(uuid.uuid4()),
+        entity_id=entity.id,
+        email="hidden@example.com",
+        role="cashier",
+        token=str(uuid.uuid4()),
+        status="pending",
         created_at=datetime.now(UTC),
     )
     resp = client.get(
@@ -583,8 +595,17 @@ def test_the_response_carries_flasks_keys_and_no_others(client, auth, entity, mo
     fails this test, which is the prompt to ask whether the frontend actually wants it.
     """
     flask_keys = {
-        "entity_id", "status", "current_step", "max_reached", "saved_step", "entity",
-        "modules", "xero", "sales_methods", "opening_balance", "invites",
+        "entity_id",
+        "status",
+        "current_step",
+        "max_reached",
+        "saved_step",
+        "entity",
+        "modules",
+        "xero",
+        "sales_methods",
+        "opening_balance",
+        "invites",
     }
     assert set(state_of(client, auth, entity)) == flask_keys
 

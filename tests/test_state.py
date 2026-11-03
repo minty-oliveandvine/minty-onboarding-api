@@ -13,11 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-
-from core import xero_tokens
-from onboarding.services import state as state_service
-from onboarding.services import steps as step_defs
-from shared_models.models import (
+from minty_db.models import (
     EntityPettycashSettings,
     EntitySaleSetting,
     Invitation,
@@ -25,6 +21,10 @@ from shared_models.models import (
     SaleInfo,
     UserEntity,
 )
+
+from core import xero_tokens
+from onboarding.services import state as state_service
+from onboarding.services import steps as step_defs
 from tests.conftest import make_token, requires_postgres
 
 # /state reads the entity_setup_summary VIEW (Postgres SQL), so this module runs in the
@@ -86,7 +86,7 @@ def test_unknown_entity_is_404_only_for_a_member(client, auth, user):
     # FK cascades the membership away, which is exactly the "member of a ghost" state the
     # route must still answer 404 for rather than 403).
     ghost = str(uuid.uuid4())
-    from shared_models.models import Entity
+    from minty_db.models import Entity
 
     Entity.objects.create(id=ghost, name="Ghost Co", status="onboarding")
     UserEntity.objects.create(
@@ -187,7 +187,7 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
     entity.xero_org_id = str(uuid.uuid4())
     entity.save()
     # pettycash_account_id is an FK to the company's synced account_info row
-    from shared_models.models import AccountInfo
+    from minty_db.models import AccountInfo
 
     account = AccountInfo.objects.create(
         id=uuid.uuid4(), entity_id=entity.id, type="EXPENSE", name="Petty Cash",

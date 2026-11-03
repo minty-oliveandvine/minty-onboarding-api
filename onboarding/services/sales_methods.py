@@ -28,11 +28,11 @@ import logging
 import uuid
 
 from django.db import transaction
+from minty_db.enums import SaleType
+from minty_db.models import EntitySaleSetting, SaleInfo
 
 from core.exceptions import AccessDeniedError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
-from shared_models.enums import SaleType
-from shared_models.models import EntitySaleSetting, SaleInfo
 
 logger = logging.getLogger("minty-onboarding")
 

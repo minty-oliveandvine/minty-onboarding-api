@@ -14,8 +14,7 @@ import os
 import uuid
 
 import pytest
-
-from shared_models.models import (
+from minty_db.models import (
     Entity,
     EntityCashSetting,
     EntityFunctionMap,
@@ -23,6 +22,7 @@ from shared_models.models import (
     SaleInfo,
     UserEntity,
 )
+
 from tests.conftest import make_token, requires_postgres
 
 CREATE = "/api/onboarding/create"
@@ -56,6 +56,15 @@ def test_create_returns_201_with_the_new_id(client, auth, countries, currencies,
     body = resp.json()
     assert body["name"] == "Acme Trading"
     assert Entity.objects.filter(id=body["entity_id"], status="onboarding").exists()
+
+
+@pytest.mark.django_db
+def test_a_new_company_has_no_saved_step(client, auth, countries, currencies, modules):
+    """NULL = "never saved". The column's database default is 9, which says "finished": left
+    to it, resume and the reminder email treat a company just created as done (Flask's
+    create sets NULL for the same reason)."""
+    body = post_create(client, auth, entity_name="Fresh Start", **STEP1).json()
+    assert Entity.objects.get(id=body["entity_id"]).onboarding_saved_step is None
 
 
 @pytest.mark.django_db
@@ -318,7 +327,7 @@ def test_an_unresolvable_country_is_a_400_not_a_null(client, auth, countries, mo
 @pytest.mark.django_db
 def test_an_ambiguous_country_prefix_resolves_to_nothing(client, auth, countries, modules):
     """The unique-prefix fallback must not guess between two countries."""
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.create(
         country_code="AL", alpha3_code="ALB", country_name_en="Albania", is_active=True
@@ -490,7 +499,7 @@ def test_create_with_no_currency_to_derive_is_a_400(client, auth, countries, cur
 
 @pytest.mark.django_db
 def test_create_keeps_an_explicit_currency(client, auth, countries, currencies, modules):
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     resp = post_create(client, auth, entity_name="Yen Co", country_id="HK", currency_id="JPY")
@@ -563,7 +572,7 @@ def test_currency_is_derived_from_the_country_when_not_given(
     client, auth, entity, countries, currencies, modules
 ):
     """Picking a country alone still leaves the company with a currency."""
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     resp = put_entity(client, auth, entity.id, country_id="HK")
@@ -576,7 +585,7 @@ def test_currency_is_derived_from_the_country_when_not_given(
 def test_an_explicit_currency_beats_the_derived_one(
     client, auth, entity, countries, currencies, modules
 ):
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     put_entity(client, auth, entity.id, country_id="HK", currency_id="JPY")
@@ -665,7 +674,7 @@ def test_changing_the_currency_swaps_the_denominations(
 def test_a_derived_currency_also_brings_its_denominations(
     client, auth, entity, countries, currencies, cash_catalogue, modules
 ):
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     put_entity(client, auth, entity.id, country_id="HK")
@@ -811,7 +820,7 @@ def test_an_unusable_timezone_is_400(client, auth, countries, currencies, module
 def test_create_takes_the_country_s_currency_when_none_is_sent(
     client, auth, countries, currencies, modules
 ):
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     entity_id = post_create(client, auth, entity_name="Country Co", country_id="HK").json()["entity_id"]

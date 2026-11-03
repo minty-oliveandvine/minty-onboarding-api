@@ -8,8 +8,7 @@ corresponds to a rule Flask's version documents as having once been wrong.
 import uuid
 
 import pytest
-
-from shared_models.models import BillingPlan, BillingPolicy
+from minty_db.models import BillingPlan, BillingPolicy
 
 SERVER_TIME = "/api/onboarding/server-time"
 CURRENCIES = "/api/onboarding/currencies"
@@ -296,7 +295,7 @@ def test_largest_bundle_wins(client, auth, plans, modules, policy):
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
 def test_countries_carry_their_currency(client, countries, currencies):
-    from shared_models.models import CountryInfo
+    from minty_db.models import CountryInfo
 
     CountryInfo.objects.filter(country_code="HK").update(currency_id=currencies["HKD"].id)
     by_code = {c["country_code"]: c for c in client.get(COUNTRIES).json()["countries"]}

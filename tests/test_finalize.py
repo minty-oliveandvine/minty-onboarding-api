@@ -13,8 +13,8 @@ import json
 import pytest
 import requests
 from django.conf import settings
+from minty_db.models import Entity
 
-from shared_models.models import Entity
 from tests.test_minty_client import FakeResponse, Recorder
 
 pytestmark = pytest.mark.django_db
@@ -124,8 +124,8 @@ def test_finalize_needs_an_entity_id(client, auth):
 import uuid  # noqa: E402
 
 from django.db import connection  # noqa: E402
+from minty_db.models import AccountInfo, EntityPettycashSettings  # noqa: E402
 
-from shared_models.models import AccountInfo, EntityPettycashSettings  # noqa: E402
 from tests.conftest import requires_postgres  # noqa: E402
 
 

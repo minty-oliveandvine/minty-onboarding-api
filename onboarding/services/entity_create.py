@@ -48,6 +48,15 @@ import uuid
 from datetime import UTC, datetime
 
 from django.db import transaction
+from minty_db.enums import SaleType
+from minty_db.models import (
+    Entity,
+    EntityFunction,
+    EntityFunctionMap,
+    EntitySaleSetting,
+    SaleInfo,
+    UserEntity,
+)
 
 from core.exceptions import ConflictError, OnboardingValidationError
 from onboarding.services.cash_settings import sync_cash_settings
@@ -56,15 +65,6 @@ from onboarding.services.cash_settings import sync_cash_settings
 # how they drift apart. services/plans.py owns the module codes; state.py imports them from
 # there too, so this is now the single definition.
 from onboarding.services.plans import MODULE_CODES
-from shared_models.enums import SaleType
-from shared_models.models import (
-    Entity,
-    EntityFunction,
-    EntityFunctionMap,
-    EntitySaleSetting,
-    SaleInfo,
-    UserEntity,
-)
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -124,7 +124,7 @@ def _seed_module_defaults(entity_id: str, state: dict[str, bool] | None = None,
 
     THE GUARD: this refuses to write ``is_enabled=True``. Enabling a module is a
     subscription write and belongs to Flask until ``subscription-service`` exists (see the
-    module header and shared_models/models.py). Raising rather than silently coercing, so a
+    module header). Raising rather than silently coercing, so a
     future caller that tries fails loudly in tests instead of quietly granting a paid module
     for free.
 
@@ -254,6 +254,10 @@ def create_entity_for_user(
             country_code=country_code or None,
             currency_id=currency_id or None,
             status="onboarding",
+            # NULL = "never saved". Left out, the column's database default (9) says "finished",
+            # and resume and the reminder email treat the company as done (Flask's create sets
+            # it the same way; minty-db's model carries the default, the old copy did not).
+            onboarding_saved_step=None,
         )
         UserEntity.objects.create(
             user_id=str(user_id),

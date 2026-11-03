@@ -27,12 +27,14 @@ does.
 **Before writing any table, grep the Flask model for `default=` without `server_`, and set
 every one explicitly.**
 
-### 1. Alembic owns the schema. This service ships no migrations.
+### 1. minty-db owns the schema. This service ships no migrations.
 
-Every model in `shared_models/models.py` is `managed = False`, and there is no
-`migrations/` directory anywhere on purpose. The database is the same Postgres and the
-same `pettycashv3` schema that Flask owns, and Alembic in Minty is the owner-of-record
-for all DDL.
+The models are minty-db's (`minty_db.models`, pinned in `requirements.txt`; since 2026-10-30),
+generated from the schema file, and there is no `migrations/` directory anywhere on purpose:
+minty-db's migrations are run by hand (`python -m minty_db migrate`), never by this service
+(`MIGRATION_MODULES`). The database is the same Postgres and the same `pettycashv3` schema the
+other services use. Ids are `uuid.UUID`; under test, comparing one with uuid text raises
+(`minty_db.testing.uuid_guard`).
 
 A new column means: **Alembic migration in Minty first, then hand-edit the model here.**
 That hand-sync is a real cost, and it is the established convention — `minty-payment-request-api`

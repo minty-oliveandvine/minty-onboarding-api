@@ -27,6 +27,7 @@ the update does not, so a partial edit without a country stays valid.
 import logging
 
 from django.db import transaction
+from minty_db.models import CountryInfo, CurrencyInfo, Entity
 from ninja import Body, Router, Schema, Status
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
@@ -35,7 +36,6 @@ from core.policy import Permission, has_permission_by_user_id
 from onboarding.services import resolve
 from onboarding.services.cash_settings import sync_cash_settings
 from onboarding.services.entity_create import create_entity_for_user
-from shared_models.models import CountryInfo, CurrencyInfo, Entity
 
 logger = logging.getLogger("minty-onboarding")
 

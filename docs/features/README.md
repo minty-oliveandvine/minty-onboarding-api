@@ -19,4 +19,4 @@ Alembic owns the schema; whoever owns the external rail owns the write), the mig
 groups and the deliberate divergences from Flask are in the repo `README.md`; read it
 first. Running it: `manage.py runserver 8030` with `.env` (`APP_ENV`, `SECRET_KEY` shared with Minty,
 `DATABASE_URL`, `PETTY_CASH_URL`, `SUBSCRIPTION_API_URL`, `ONBOARDING_WEB_URL`; see `.env.example`); tests
-`pytest` (399 + 1 skipped on 2026-10-06; needs `MINTY_REPO` for the schema harness).
+`pytest` (SQLite; with `MINTY_TEST_PG_URI` set, on a Postgres built from minty-db's packaged schema file).

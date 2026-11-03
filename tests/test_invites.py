@@ -9,9 +9,9 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from minty_db.models import Invitation, UserEntity
 
 from core import minty_client
-from shared_models.models import Invitation, UserEntity
 from tests.conftest import make_token, requires_postgres
 
 INVITE = "/api/onboarding/invite"

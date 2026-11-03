@@ -1,9 +1,7 @@
 """Fixtures for the onboarding API suite.
 
-Runs against SQLite with ``--no-migrations`` (see pytest.ini). The shared tables are
-Alembic's in production, so ``shared_models/apps.py`` flips ``managed`` on when
-``SHARED_MODELS_MANAGED_FOR_TESTING`` is set and pytest-django builds them from the
-models instead.
+Runs against SQLite with ``--no-migrations`` (see pytest.ini): pytest-django builds the
+tables from minty-db's models (``MIGRATION_MODULES`` has ``minty_db: None``).
 
 WHAT THESE TESTS CAN AND CANNOT PROVE
 
@@ -23,8 +21,7 @@ import jwt
 import pytest
 from django.conf import settings
 from django.test import Client
-
-from shared_models.models import (
+from minty_db.models import (
     BillingPlan,
     BillingPolicy,
     CashInfo,
@@ -222,7 +219,7 @@ def entity(db, user, countries):
     ``countries`` because ``entities.country_code`` is a real FK on Postgres."""
     e = Entity.objects.create(
         id=str(uuid.uuid4()), name="Wizard Trading Co",
-        country_code="HK", status="onboarding",
+        country_code="HK", status="onboarding", onboarding_saved_step=None,
     )
     UserEntity.objects.create(
         user_id=user.id, entity_id=e.id, role="super_admin", approved=True

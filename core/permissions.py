@@ -20,10 +20,10 @@ Note the order: membership is checked BEFORE existence. That is deliberate and w
 reading 403 against 404.
 """
 
+from minty_db.models import Entity, UserEntity
 from minty_shared import logctx
 
 from core.exceptions import AccessDeniedError, NotFoundError, OnboardingValidationError
-from shared_models.models import Entity, UserEntity
 
 
 def require_entity_id(entity_id) -> str:

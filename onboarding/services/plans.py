@@ -34,14 +34,15 @@ catalog cannot invent a free module.
 
 import logging
 
+from minty_db.enums import ModuleCode
+from minty_db.models import BillingPlan, BillingPolicy, EntityFunction
+
 from onboarding.services import money
-from shared_models.enums import ModuleCode
-from shared_models.models import BillingPlan, BillingPolicy, EntityFunction
 
 logger = logging.getLogger("minty-onboarding")
 
 #: Canonical module codes, in display order: the ``module_code`` enum
-#: (shared_models/enums.py, schema item 20). ``MODULE_BILL`` keeps its historical name.
+#: (minty_db.enums, schema item 20). ``MODULE_BILL`` keeps its historical name.
 MODULE_PETTY_CASH = ModuleCode.PETTY_CASH.value
 MODULE_BILL = ModuleCode.PAYMENT_REQUEST.value
 MODULE_CODES = (MODULE_PETTY_CASH, MODULE_BILL)

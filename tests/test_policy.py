@@ -19,10 +19,10 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from minty_db.models import User, UserEntity
 
 from core import permissions, policy
 from core.policy import Permission, Role
-from shared_models.models import User, UserEntity
 from tests.conftest import requires_postgres
 
 

@@ -52,8 +52,7 @@ django.setup()
 import jwt  # noqa: E402
 from django.conf import settings  # noqa: E402
 from django.test import Client  # noqa: E402
-
-from shared_models.models import Entity, User, UserEntity  # noqa: E402
+from minty_db.models import Entity, User, UserEntity  # noqa: E402
 
 #: GET endpoints per group: (group, path, needs_token, needs_entity).
 #:

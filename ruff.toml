@@ -32,4 +32,4 @@ ignore = [
 ]
 
 [lint.isort]
-known-first-party = ["config", "core", "onboarding", "scripts", "shared_models"]
+known-first-party = ["config", "core", "onboarding", "scripts"]

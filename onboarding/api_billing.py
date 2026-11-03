@@ -26,14 +26,14 @@ privilege of its own -- there is no service credential here to scope wrongly.
 
 import logging
 
+from minty_db.enums import EntityStatus
+from minty_db.models import EntityBillAccountXero, EntityFunctionMap
 from ninja import Body, Router, Status
 
 from core import minty_client, subscription_client
 from core.exceptions import UpstreamError
 from core.permissions import entity_for_member, require_entity_id
 from onboarding.services import state as state_service
-from shared_models.enums import EntityStatus
-from shared_models.models import EntityBillAccountXero, EntityFunctionMap
 
 logger = logging.getLogger("minty-onboarding")
 

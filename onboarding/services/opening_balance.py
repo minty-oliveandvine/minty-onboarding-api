@@ -38,10 +38,10 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Q
+from minty_db.models import CurrencyInfo, Entity, EntityPettycashSettings, Report
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
-from shared_models.models import CurrencyInfo, Entity, EntityPettycashSettings, Report
 
 logger = logging.getLogger("minty-onboarding")
 

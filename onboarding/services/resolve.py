@@ -30,7 +30,7 @@ import re
 import uuid as _uuid
 from zoneinfo import available_timezones
 
-from shared_models.models import CountryInfo, CurrencyInfo
+from minty_db.models import CountryInfo, CurrencyInfo
 
 
 def country_code(value) -> str:

@@ -34,11 +34,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from minty_db.models import CountryInfo, CurrencyInfo
 from ninja import Router, Status
 
 from core.auth import OnboardingBearerAuth
 from onboarding.services import plans as plans_service
-from shared_models.models import CountryInfo, CurrencyInfo
 
 #: Public: reference data with nothing per-user in it. See the module header.
 public_router = Router(auth=None)

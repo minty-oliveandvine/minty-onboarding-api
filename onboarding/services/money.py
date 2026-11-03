@@ -22,7 +22,7 @@ explicit argument beats a hidden request-global.
 import logging
 from decimal import Decimal
 
-from shared_models.models import CurrencyInfo
+from minty_db.models import CurrencyInfo
 
 logger = logging.getLogger("minty-onboarding")
 

@@ -24,10 +24,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-
-from core import xero_tokens
-from onboarding.services import steps as step_defs
-from shared_models.models import (
+from minty_db.models import (
     AccountInfo,
     Entity,
     EntityCashSetting,
@@ -38,6 +35,9 @@ from shared_models.models import (
     Report,
     UserEntity,
 )
+
+from core import xero_tokens
+from onboarding.services import steps as step_defs
 from tests.conftest import requires_postgres
 
 # Walks /state, which reads the entity_setup_summary VIEW: Postgres pass only.

@@ -13,10 +13,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-
-from core import minty_client
-from core.exceptions import UpstreamError
-from shared_models.models import (
+from minty_db.models import (
     AccountInfo,
     Entity,
     EntityPettycashSettings,
@@ -25,6 +22,9 @@ from shared_models.models import (
     SaleInfo,
     UserEntity,
 )
+
+from core import minty_client
+from core.exceptions import UpstreamError
 from tests.conftest import make_token
 
 SALES = "/api/onboarding/sales-methods"
@@ -257,7 +257,7 @@ def _entity_has_a_currency(request):
     """The opening balance needs a currency (2026-10-13); give the shared entity one."""
     if "entity" not in request.fixturenames or "no_currency" in request.keywords:
         return
-    from shared_models.models import CurrencyInfo
+    from minty_db.models import CurrencyInfo
 
     entity = request.getfixturevalue("entity")
     hkd = CurrencyInfo.objects.create(id=uuid.uuid4(), currency_code="HKD", currency_name="Hong Kong Dollar",

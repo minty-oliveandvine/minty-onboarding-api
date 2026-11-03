@@ -33,9 +33,10 @@ shop_manager could cancel the admin invitation that would have outranked them.
 import logging
 from datetime import UTC, datetime
 
+from minty_db.models import Invitation, User
+
 from core.exceptions import AccessDeniedError, NotFoundError, OnboardingValidationError
 from core.policy import Permission, can_manage_role_assignment_for_entity, has_permission_by_user_id
-from shared_models.models import Invitation, User
 
 logger = logging.getLogger("minty-onboarding")
 

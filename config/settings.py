@@ -44,9 +44,13 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 INSTALLED_APPS = [
     "corsheaders",
     "core",
-    "shared_models",
+    "minty_db",
     "onboarding",
 ]
+# minty_db's models are the schema (minty-db, generated from 01_schema_rebased.sql). Its
+# migrations are run by hand (python -m minty_db migrate), never by a service: None here keeps
+# `migrate` from ever touching them, and lets a SQLite test run build the tables from the models.
+MIGRATION_MODULES = {"minty_db": None}
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",

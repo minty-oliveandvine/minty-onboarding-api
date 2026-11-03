@@ -44,10 +44,9 @@ import logging
 
 import jwt
 from django.conf import settings
+from minty_db.models import User
 from minty_shared import logctx
 from ninja.security import HttpBearer
-
-from shared_models.models import User
 
 logger = logging.getLogger("minty-onboarding")
 

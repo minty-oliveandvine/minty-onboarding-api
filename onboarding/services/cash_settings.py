@@ -13,8 +13,7 @@ pages; change the two together.
 import logging
 
 from django.db import transaction
-
-from shared_models.models import CashInfo, EntityCashSetting
+from minty_db.models import CashInfo, EntityCashSetting
 
 logger = logging.getLogger("minty-onboarding")
 

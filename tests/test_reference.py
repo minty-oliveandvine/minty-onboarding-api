@@ -183,7 +183,7 @@ def test_the_label_is_the_code_for_any_currency(
 ):
     """A currency with no glyph recorded reads its code too."""
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="BILL", display_name="Payment Request",
+        id=uuid.uuid4(), code="PAYMENT_REQUEST", display_name="Payment Request",
         amount=28000, currency="JPY", interval_months=1, is_active=True,
     )
     body = client.get(PLANS, **auth).json()
@@ -195,7 +195,7 @@ def test_the_label_is_the_code_for_any_currency(
 def test_a_module_with_no_plan_is_omitted_not_free(client, auth, modules, policy, currencies):
     """A half-seeded catalog must not invent a price.
 
-    Only PETTY_CASH gets a row. BILL must be absent from the list, not present at zero --
+    Only PETTY_CASH gets a row. PAYMENT_REQUEST must be absent from the list, not present at zero --
     a module rendered at 0.00 reads as free.
     """
     BillingPlan.objects.create(
@@ -283,7 +283,7 @@ def test_empty_catalog_answers_a_usable_shape(client, auth, modules, policy):
 def test_largest_bundle_wins(client, auth, plans, modules, policy):
     """A future three-module bundle must beat a two-module one, not depend on row order."""
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="BILL+PETTY_CASH+PAYROLL", display_name="Everything",
+        id=uuid.uuid4(), code="PAYMENT_REQUEST+PAYROLL+PETTY_CASH", display_name="Everything",
         amount=50000, currency="HKD", interval_months=1, is_active=True,
     )
     body = client.get(PLANS, **auth).json()

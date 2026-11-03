@@ -198,11 +198,11 @@ def plans(db, currencies):
         amount=28000, currency="HKD", interval_months=1, is_active=True,
     )
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="BILL", display_name="Payment Request",
+        id=uuid.uuid4(), code="PAYMENT_REQUEST", display_name="Payment Request",
         amount=28000, currency="HKD", interval_months=1, is_active=True,
     )
     BillingPlan.objects.create(
-        id=uuid.uuid4(), code="BILL+PETTY_CASH", display_name="Super Minty",
+        id=uuid.uuid4(), code="PAYMENT_REQUEST+PETTY_CASH", display_name="Super Minty",
         amount=40000, currency="HKD", interval_months=1, is_active=True,
     )
 

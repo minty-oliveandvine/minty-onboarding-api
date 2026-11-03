@@ -38,6 +38,7 @@ register_exception_handlers(api)
 from onboarding.api_billing import billing_router  # noqa: E402
 from onboarding.api_entity import entity_router  # noqa: E402
 from onboarding.api_invites import invites_router  # noqa: E402
+from onboarding.api_me import me_router  # noqa: E402
 from onboarding.api_modules import modules_router  # noqa: E402
 from onboarding.api_pettycash import pettycash_router  # noqa: E402
 from onboarding.api_reference import plans_router, public_router  # noqa: E402
@@ -67,6 +68,10 @@ api.add_router("/", modules_router, tags=["Modules"])
 
 # Group G -- money, and the Xero disconnect. Proxied, every one.
 api.add_router("/", billing_router, tags=["Billing"])
+
+# The person -- the sidebar's My Profile sheet (profile from Flask, subscriptions from the
+# subscription API). Proxied; not part of Flask's onboarding surface. See onboarding/api_me.py.
+api.add_router("/", me_router, tags=["Me"])
 
 # Every /api/onboarding/* path Flask serves is now answered here -- ported or proxied -- so
 # the wizard points at ONE base URL. Which endpoints are genuinely local is recorded in

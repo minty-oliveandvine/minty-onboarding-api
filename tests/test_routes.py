@@ -74,6 +74,12 @@ PROXIED = {
     "POST /billing/authorize",
     "POST /xero/disconnect",
     "POST /xero/release",
+    # The person -- the sidebar's My Profile sheet. Not Flask onboarding routes: the profile
+    # is Flask's /api/me/profile, the list the subscription API's /api/me/subscriptions, and
+    # neither admits the onboarding origin through CORS.
+    "GET /me/profile",
+    "PATCH /me/profile",
+    "GET /me/subscriptions",
 }
 
 EXPECTED = PORTED | PROXIED
@@ -173,8 +179,13 @@ def test_the_whole_flask_surface_is_answered():
 
     32 -> 33 on 2026-10-13: ``POST /invite/resend`` joins, proxied beside ``POST /invite``
     (Flask sends the email). Step 3 offers Resend on an expired or unanswered invite.
+
+    33 -> 36 on 2026-11-03: ``GET``/``PATCH /me/profile`` and ``GET /me/subscriptions`` join,
+    proxied, for the sidebar's My Profile sheet. They are not Flask onboarding paths (they
+    forward to ``/api/me/*``) -- the wizard needs them because neither upstream admits its
+    origin through CORS.
     """
     assert len(PORTED) == 14
-    assert len(PROXIED) == 19
-    assert len(EXPECTED) == 33
+    assert len(PROXIED) == 22
+    assert len(EXPECTED) == 36
     assert set(_operations()) == EXPECTED

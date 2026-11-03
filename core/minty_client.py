@@ -22,6 +22,7 @@ WHAT GOES THROUGH HERE (to Flask)
   * Group G  POST /api/onboarding/xero/release       (frees another company's org)
   * Group D  the Xero chart of accounts and contacts
   * Group E  POST /api/onboarding/invite             (the email links into Flask)
+  * Me       GET/PATCH /api/me/profile              (the sidebar's My Profile sheet)
 
 HOW IT AUTHENTICATES
 

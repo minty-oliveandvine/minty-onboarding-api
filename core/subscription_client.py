@@ -9,6 +9,7 @@ WHAT GOES THROUGH HERE
   * Group G  GET  /api/onboarding/payment-method
              /api/onboarding/billing/*
              POST /api/onboarding/trials/start      (finalize's second half)
+  * Me       GET  /api/me/subscriptions            (the sidebar's My Profile sheet)
 
 The transport is ``core.minty_client``'s -- the caller's own bearer forwarded verbatim,
 the same timeout and the same 502/504 answers -- pointed at ``SUBSCRIPTION_API_URL``.

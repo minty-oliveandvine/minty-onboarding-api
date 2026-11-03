@@ -118,13 +118,15 @@ line, and reverting is the same line.
 | **D1** Petty cash | `sales-methods`, `opening-balance` | Django | **Ported** |
 | **E** Invites | `GET invite`, `invite/cancel` | Django | **Ported** |
 | **D2** Xero & bills | `account-codes`, `contacts`, `contacts/create`, `bill-codes` | **Flask** | Proxy |
-| **E** Invite send | `POST invite` | **Flask** | Proxy — the email links into a Flask route |
+| **E** Invite send | `POST invite`, `invite/resend` | **Flask** | Proxy — the email links into a Flask route |
 | **F** Modules | `modules` | **Flask** | Proxy — a module grant is a subscription write |
 | **G** Money | `payment-method`, `billing/*` | **minty-subscription-api** | Proxy (since 2026-10-06) |
 | **G** Finish | `finalize` | Django | **Ported** (2026-10-06) — calls the subscription API's `trials/start` |
-| **G** Xero | `xero/disconnect` | **Flask** | Proxy |
+| **G** Xero | `xero/disconnect`, `xero/release` | **Flask** | Proxy |
+| Me | `GET`/`PATCH me/profile` | **Flask** (`/api/me/profile`) | Proxy (2026-11-03) — the sidebar's My Profile sheet; not a Flask onboarding path |
+| Me | `GET me/subscriptions` | **minty-subscription-api** (`/api/me/subscriptions`) | Proxy (2026-11-03) — the same sheet's Subscriptions Overview |
 
-**14 of 31 method+path operations are implemented here; 17 are proxied** (2026-10-06). That
+**14 of 36 method+path operations are implemented here; 22 are proxied** (2026-11-03). That
 split is by design, not by how far the work got — every proxied endpoint touches Stripe, a
 Xero token, subscription state, or a Flask-owned URL. `tests/test_routes.py` holds the
 authoritative list and fails if anything moves between the two sets without being declared.

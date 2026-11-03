@@ -5,7 +5,7 @@ same paths Minty's Flask still answers (`Minty/blueprints/entity/routes/create.p
 `payment-method`, `billing/*` or `finalize` since 2026-10-06) — the
 wizard's `lib/apiRoutes.ts` decides which service gets each path. Routers:
 `onboarding/api_reference.py`, `api_state.py`, `api_entity.py`, `api_pettycash.py`,
-`api_invites.py`, `api_modules.py`, `api_billing.py`; services under
+`api_invites.py`, `api_modules.py`, `api_billing.py`, `api_me.py`; services under
 `onboarding/services/`. The migration groups (A–G) and the deliberate divergences from
 Flask are in the repo `README.md`.
 
@@ -131,6 +131,26 @@ is confirmed in-app onto a billing account; the hosted-Checkout `payment-method/
 `minty_client`'s transport (`base=`): the caller's bearer forwarded verbatim, the same timeout,
 the same 502/504 answers.
 
+## The sidebar's My Profile sheet (`api_me.py`, proxied since 2026-11-03)
+
+The wizard draws `@minty/shared`'s sidebar, whose My Profile sheet reads and saves the
+person's own profile and lists their subscriptions. Neither Flask's nor the subscription API's
+CORS admits the onboarding origin, so the wizard reaches them through three pass-through
+proxies here (the caller's bearer forwarded, the upstream's status and body relayed unchanged;
+nothing is validated here):
+
+- `GET /me/profile[?entity=]` → Flask `GET /api/me/profile` (`entity` forwarded only when sent;
+  Flask answers 403 for a company the person may not see).
+- `PATCH /me/profile[?entity=]` → Flask `PATCH /api/me/profile`, the JSON body
+  (`{first_name?, last_name?, email?}`) forwarded as is; Flask validates (400/422 with the
+  sentence to show).
+- `GET /me/subscriptions[?page=&per_page=]` → minty-subscription-api `GET /api/me/subscriptions`
+  (paging forwarded only when sent, for that service to validate).
+
+They are not Flask onboarding paths. Both upstreams accept the onboarding-scoped token (Flask's
+`hub_api.guard` and the subscription API's `SelfBearerAuth` check the signature and the person,
+not `scope`).
+
 ## Finalize (`api_billing.py`, implemented here since 2026-10-06)
 
 `POST /finalize {entity_id}` — called on arrival at All Set. Membership via
@@ -156,8 +176,8 @@ until an admin confirms billing in minty-web.
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,
-`test_reference.py`, `test_routes.py` (every path is registered; 14 ported, 17 proxied, 31 in
-all), `test_finalize.py`, `test_char_schema.py`
+`test_reference.py`, `test_routes.py` (every path is registered; 14 ported, 22 proxied, 36 in
+all, 2026-11-03), `test_me_proxies.py` (the My Profile proxies), `test_finalize.py`, `test_char_schema.py`
 and `test_schema_name.py` (the schema), `test_settings_guard.py`; 399 passed + 1 skipped on
 2026-10-06 (SQLite and Postgres) against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
 `minty-onboarding-web/e2e` (`stack`, `resume`, `xero`, `walk`).

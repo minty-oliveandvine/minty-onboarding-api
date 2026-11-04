@@ -27,7 +27,7 @@ the update does not, so a partial edit without a country stays valid.
 import logging
 
 from django.db import transaction
-from minty_db.models import CountryInfo, CurrencyInfo, Entity
+from minty_db.models import CountryInfo, CurrencyInfo
 from ninja import Body, Router, Schema, Status
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
@@ -35,7 +35,11 @@ from core.permissions import entity_for_member, require_entity_id
 from core.policy import Permission, has_permission_by_user_id
 from onboarding.services import resolve
 from onboarding.services.cash_settings import sync_cash_settings
-from onboarding.services.entity_create import create_entity_for_user
+from onboarding.services.entity_create import (
+    create_entity_for_user,
+    name_taken_message,
+    user_has_company_named,
+)
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -196,8 +200,8 @@ def update_entity(request, entity_id: str, payload: dict = Body(default={})):
                 raise OnboardingValidationError(
                     f"Entity name must be {NAME_MAX} characters or fewer."
                 )
-            if Entity.objects.filter(name=new_name).exclude(id=entity_id).exists():
-                raise ConflictError("Entity name already exist")
+            if user_has_company_named(request.auth_user_id, new_name, exclude_id=entity_id):
+                raise ConflictError(name_taken_message(new_name))
             entity.name = new_name
             changed.append("name")
 

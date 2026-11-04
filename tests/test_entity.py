@@ -112,20 +112,43 @@ def test_create_accepts_the_legacy_name_key(client, auth, countries, currencies,
     assert resp.json()["name"] == "Legacy Caller Co"
 
 
+def _own(user, name, status="disconnected"):
+    """A company called ``name`` that ``user`` already belongs to."""
+    company = Entity.objects.create(id=str(uuid.uuid4()), name=name, status=status)
+    UserEntity.objects.create(user_id=user.id, entity_id=company.id, role="admin", approved=True)
+    return company
+
+
+# Owner, 2026-11-03: a company name is unique per PERSON, not across every customer - two
+# different businesses may share a name; one person may not have two companies called the same.
 @pytest.mark.django_db
-def test_a_taken_name_is_409_not_400(client, auth, countries, currencies, modules):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Taken Co", status="disconnected")
+def test_a_name_the_user_already_has_is_409_not_400(
+    client, auth, user, countries, currencies, modules
+):
+    _own(user, "Taken Co")
     resp = post_create(client, auth, entity_name="Taken Co", **STEP1)
     assert resp.status_code == 409
-    # Flask's exact wording, missing plural included -- the wizard matches on it.
-    assert resp.json() == {"error": "Entity name already exist"}
+    # The wizard keys on the 409 alone and writes its own sentence (OnboardingApp.tsx).
+    assert resp.json() == {
+        "error": "You already have a company called “Taken Co”. Choose another name."
+    }
+
+
+@pytest.mark.django_db
+def test_another_customer_s_company_name_may_be_used(
+    client, auth, other_user, countries, currencies, modules
+):
+    _own(other_user, "Taken Co")
+    resp = post_create(client, auth, entity_name="Taken Co", **STEP1)
+    assert resp.status_code == 201
+    assert Entity.objects.filter(name="Taken Co").count() == 2
 
 
 @pytest.mark.django_db
 def test_the_name_is_trimmed_before_the_uniqueness_check(
-    client, auth, countries, currencies, modules
+    client, auth, user, countries, currencies, modules
 ):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Trimmed Co", status="disconnected")
+    _own(user, "Trimmed Co")
     assert post_create(client, auth, entity_name="  Trimmed Co  ", **STEP1).status_code == 409
 
 
@@ -181,11 +204,14 @@ def test_idempotency_does_not_match_a_finalized_company(
 def test_idempotency_is_scoped_to_the_caller(
     client, auth, countries, currencies, other_user, modules
 ):
-    """Another user's abandoned company is a name conflict, not something to adopt."""
+    """Another user's abandoned company is never adopted: the caller gets a company of their own
+    (since 2026-11-03 the same name is no conflict - names are unique per person)."""
     theirs = Entity.objects.create(id=str(uuid.uuid4()), name="Theirs Co", status="onboarding")
     UserEntity.objects.create(user_id=other_user.id, entity_id=theirs.id, role="admin")
     resp = post_create(client, auth, entity_name="Theirs Co", **STEP1)
-    assert resp.status_code == 409
+    assert resp.status_code == 201
+    assert resp.json()["entity_id"] != str(theirs.id)
+    assert not UserEntity.objects.filter(entity_id=theirs.id).exclude(user_id=other_user.id).exists()
 
 
 @pytest.mark.django_db
@@ -777,11 +803,21 @@ def test_resending_the_same_name_is_not_a_rename(client, user, entity, modules):
 
 
 @pytest.mark.django_db
-def test_renaming_to_a_taken_name_is_409(client, auth, entity, modules):
-    Entity.objects.create(id=str(uuid.uuid4()), name="Other Co", status="disconnected")
+def test_renaming_to_a_name_the_user_already_has_is_409(client, auth, user, entity, modules):
+    _own(user, "Other Co")
     resp = put_entity(client, auth, entity.id, entity_name="Other Co")
     assert resp.status_code == 409
-    assert resp.json() == {"error": "Entity name already exist"}
+    assert resp.json() == {
+        "error": "You already have a company called “Other Co”. Choose another name."
+    }
+
+
+@pytest.mark.django_db
+def test_renaming_to_another_customer_s_company_name_is_allowed(
+    client, auth, other_user, entity, modules
+):
+    _own(other_user, "Other Co")
+    assert put_entity(client, auth, entity.id, entity_name="Other Co").status_code == 200
 
 
 @pytest.mark.django_db

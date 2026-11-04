@@ -193,6 +193,28 @@ def _seed_module_defaults(
     )
 
 
+def name_taken_message(name: str) -> str:
+    return f"You already have a company called “{name}”. Choose another name."
+
+
+def user_has_company_named(user_id, name: str, *, exclude_id=None) -> bool:
+    """Whether ``user_id`` already belongs to a company called ``name``.
+
+    Owner, 2026-11-03: a name is unique per person, not across every customer (it was global, so
+    a business could not use its own name if anyone else had). The wizard keys on the 409 alone.
+    """
+    entity_ids = [
+        str(eid)
+        for eid in UserEntity.objects.filter(user_id=str(user_id)).values_list(
+            "entity_id", flat=True
+        )
+    ]
+    found = Entity.objects.filter(id__in=entity_ids, name=name)
+    if exclude_id is not None:
+        found = found.exclude(id=exclude_id)
+    return found.exists()
+
+
 def find_resumable_entity(user_id, name: str) -> Entity | None:
     """An in-progress entity this user already created under this name, or None.
 
@@ -240,9 +262,8 @@ def create_entity_for_user(
         )
         return existing, False
 
-    if Entity.objects.filter(name=name).exists():
-        # Flask's exact wording, including the missing plural -- the wizard matches on it.
-        raise ConflictError("Entity name already exist")
+    if user_has_company_named(user_id, name):
+        raise ConflictError(name_taken_message(name))
 
     # One transaction for the whole creation. Flask commits the entity before adding the
     # membership, which can leave a company nobody belongs to if the second commit fails --

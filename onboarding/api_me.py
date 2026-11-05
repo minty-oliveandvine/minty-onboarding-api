@@ -47,6 +47,14 @@ def patch_my_profile(request, entity: str = "", payload: dict = Body(default={})
     )
 
 
+@me_router.post("/me/contact")
+def post_my_contact(request, payload: dict = Body(default={})):
+    """Flask's ``POST /api/me/contact`` -- the "Talk to Minty" chat's message,
+    ``{topic, message, app, entity?}``; Flask takes the sender from the token, validates and
+    mails it, and answers 403/422/429/502 with the sentence to show."""
+    return minty_client.proxy(request, "/api/me/contact", method="POST", json=payload)
+
+
 @me_router.get("/me/subscriptions")
 def get_my_subscriptions(request, page: str = "", per_page: str = ""):
     """The subscription API's ``GET /api/me/subscriptions`` (the sheet's Subscriptions

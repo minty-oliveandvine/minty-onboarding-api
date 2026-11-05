@@ -80,6 +80,8 @@ PROXIED = {
     "GET /me/profile",
     "PATCH /me/profile",
     "GET /me/subscriptions",
+    # The "Talk to Minty" chat's message: Flask's /api/me/contact (Flask sends the email).
+    "POST /me/contact",
 }
 
 EXPECTED = PORTED | PROXIED
@@ -184,8 +186,11 @@ def test_the_whole_flask_surface_is_answered():
     proxied, for the sidebar's My Profile sheet. They are not Flask onboarding paths (they
     forward to ``/api/me/*``) -- the wizard needs them because neither upstream admits its
     origin through CORS.
+
+    36 -> 37 on 2026-11-05: ``POST /me/contact`` joins, proxied, for the "Talk to Minty" chat
+    (Flask's ``/api/me/contact`` mails the message; its CORS does not admit this origin either).
     """
     assert len(PORTED) == 14
-    assert len(PROXIED) == 22
-    assert len(EXPECTED) == 36
+    assert len(PROXIED) == 23
+    assert len(EXPECTED) == 37
     assert set(_operations()) == EXPECTED

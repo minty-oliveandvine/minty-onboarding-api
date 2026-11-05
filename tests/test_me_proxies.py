@@ -22,6 +22,7 @@ pytestmark = pytest.mark.django_db
 
 PROFILE = "/api/onboarding/me/profile"
 SUBSCRIPTIONS = "/api/onboarding/me/subscriptions"
+CONTACT = "/api/onboarding/me/contact"
 
 
 def _install(monkeypatch, status=200, body=None):
@@ -142,6 +143,37 @@ def test_subscriptions_relay_the_upstream_status(client, auth, monkeypatch):
     assert resp.json() == {"error": "Choose a page from 1 up."}
 
 
+# --- POST /me/contact -> Flask POST /api/me/contact ------------------------------------
+
+
+def test_contact_forwards_the_token_and_the_body_unchanged(client, auth, monkeypatch):
+    """The "Talk to Minty" chat. Flask takes the sender from the token and validates the
+    topic and message; nothing is checked or added here."""
+    rec = _install(monkeypatch, body={"sent": True, "reply_to": "ada@example.com"})
+    body = {"topic": "Technical issue", "message": "Help", "app": "minty-onboarding-web", "entity": "e-1"}
+
+    resp = client.post(CONTACT, data=json.dumps(body), content_type="application/json", **auth)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": True, "reply_to": "ada@example.com"}
+    [(method, url, kwargs)] = rec.calls
+    assert method == "POST"
+    assert url == f"{settings.PETTY_CASH_URL}/api/me/contact"
+    assert kwargs["json"] == body
+    assert kwargs["headers"]["Authorization"] == auth["HTTP_AUTHORIZATION"]
+
+
+@pytest.mark.parametrize("status", [403, 422, 429, 502])
+def test_contact_relays_flasks_refusal(client, auth, monkeypatch, status):
+    refusal = {"error": "That's a lot of messages in one hour.", "fields": {}}
+    _install(monkeypatch, status, refusal)
+
+    resp = client.post(CONTACT, data="{}", content_type="application/json", **auth)
+
+    assert resp.status_code == status
+    assert resp.json() == refusal
+
+
 # --- No token, no door --------------------------------------------------------------------
 
 
@@ -151,8 +183,9 @@ def test_subscriptions_relay_the_upstream_status(client, auth, monkeypatch):
         lambda c: c.get(PROFILE),
         lambda c: c.patch(PROFILE, data="{}", content_type="application/json"),
         lambda c: c.get(SUBSCRIPTIONS),
+        lambda c: c.post(CONTACT, data="{}", content_type="application/json"),
     ],
-    ids=["GET profile", "PATCH profile", "GET subscriptions"],
+    ids=["GET profile", "PATCH profile", "GET subscriptions", "POST contact"],
 )
 def test_each_needs_a_token_and_calls_nobody_without_one(client, monkeypatch, call):
     """The proxies forward the caller's OWN token, so without one they must not reach

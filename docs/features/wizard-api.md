@@ -139,8 +139,8 @@ the same 502/504 answers.
 ## The sidebar's My Profile sheet (`api_me.py`, proxied since 2026-11-03)
 
 The wizard draws `@minty/shared`'s sidebar, whose My Profile sheet reads and saves the
-person's own profile and lists their subscriptions. Neither Flask's nor the subscription API's
-CORS admits the onboarding origin, so the wizard reaches them through three pass-through
+person's own profile and lists their subscriptions, and its cat button sends "Talk to Minty" messages. Neither Flask's nor the subscription API's
+CORS admits the onboarding origin, so the wizard reaches them through four pass-through
 proxies here (the caller's bearer forwarded, the upstream's status and body relayed unchanged;
 nothing is validated here):
 
@@ -151,6 +151,9 @@ nothing is validated here):
   sentence to show).
 - `GET /me/subscriptions[?page=&per_page=]` → minty-subscription-api `GET /api/me/subscriptions`
   (paging forwarded only when sent, for that service to validate).
+- `POST /me/contact` → Flask `POST /api/me/contact`, the "Talk to Minty" chat's message
+  (`{topic, message, app, entity?}`) forwarded as is; Flask takes the sender from the token,
+  validates and mails it (403/422/429/502 with the sentence to show).
 
 They are not Flask onboarding paths. Both upstreams accept the onboarding-scoped token (Flask's
 `hub_api.guard` and the subscription API's `SelfBearerAuth` check the signature and the person,

@@ -51,9 +51,10 @@ Step ids: 1 Basic, 2 Modules, 3 Invite, 4 Accounting, 5 Sales, 6 Account code, 7
 methods: **Cash only** — no electronic or delivery method is seeded, so the wizard's lists start
 empty until its Auto Fill);
 idempotent on (member, name, `status = onboarding`) so a retry resumes the abandoned row
-(`created: false`). `PUT /entity/{id}` edits an in-progress one. Both take `timezone` -
-the browser's IANA zone, sent with no field on screen; unknown or longer than the 30-character
-column is 400 (`resolve.timezone`). Create derives the currency from the country when none is
+(`created: false`). `PUT /entity/{id}` edits an in-progress one. Both set
+`entities.timezone` from the country (`minty_shared.time.country_timezone`, the tracker's map;
+owner, 2026-11-04) - a sent `timezone` is ignored, and a country the map lacks keeps the stored
+zone with a warning in the log. Create derives the currency from the country when none is
 sent (as edit always has) and sets the creator's `user_entity.joined_at`. **Create requires a
 country and a currency** (owner, 2026-10-19: Step 1 no longer pre-fills Hong Kong / HKD): no
 country is a 400 `"Choose the company's country."`, and no currency sent or derivable from the
@@ -71,7 +72,7 @@ unvalidated — they are foreign keys; phone and email are checked the way the w
 The phone (`resolve.contact_phone`, since 2026-10-12) is **E.164**: `+<dial code><number>`,
 spaces, dashes, dots and brackets dropped, the domestic trunk 0 dropped (except +39/+378), and
 the code must be a `country_info.phone_code` (so a database without
-`Minty/docs/schema/seed_country_phone_codes.sql` refuses every number). Only Hong Kong's length
+the dial codes in `Minty/scripts/schema_migration/pettycashv3_data_post_build.sql` refuses every number). Only Hong Kong's length
 is exact: 8 digits for +852, the one market Minty sells in (`PHONE_LENGTHS`, the wizard's table,
 so change both together; add a code when its market opens). Every other code: at least 4
 national digits and at most 15 in all. Stored as

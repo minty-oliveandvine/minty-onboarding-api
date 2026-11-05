@@ -28,6 +28,7 @@ import logging
 
 from django.db import transaction
 from minty_db.models import CountryInfo, CurrencyInfo
+from minty_shared.time import country_timezone
 from ninja import Body, Router, Schema, Status
 
 from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
@@ -68,8 +69,6 @@ class CreateEntityIn(Schema):
     currency_code: str = ""
     contact_phone: str = ""
     business_email: str = ""
-    # The browser's IANA zone, sent with no field on screen (2026-10-13).
-    timezone: str = ""
 
 
 def _country_currency(country: str) -> str:
@@ -78,6 +77,15 @@ def _country_currency(country: str) -> str:
         return ""
     row = CountryInfo.objects.filter(country_code=country).first()
     return str(row.currency_id) if row is not None and row.currency_id else ""
+
+
+def _country_zone(country: str) -> str | None:
+    """The company's timezone: its country's (owner, 2026-11-04), never the browser's.
+    None for a country the map does not list, so the stored zone stays."""
+    zone = country_timezone(country)
+    if zone is None:
+        logger.warning("onboarding: no timezone for country %s; the stored one stays", country)
+    return zone
 
 
 def _first(*values) -> str:
@@ -137,10 +145,6 @@ def create_entity(request, payload: CreateEntityIn):
     email, email_error = resolve.business_email(payload.business_email)
     if email_error:
         raise OnboardingValidationError(email_error)
-    tz_name, tz_error = resolve.timezone(payload.timezone)
-    if tz_error:
-        raise OnboardingValidationError(tz_error)
-
     entity, created = create_entity_for_user(
         request.auth_user_id,
         _first(payload.entity_name, payload.name),
@@ -155,6 +159,7 @@ def create_entity(request, payload: CreateEntityIn):
         entity.contact_phone = phone if created or phone is not None else entity.contact_phone
         entity.business_email = email if created or email is not None else entity.business_email
         entity.save(update_fields=["contact_phone", "business_email"])
+    tz_name = _country_zone(country)
     if tz_name:
         entity.timezone = tz_name
         entity.save(update_fields=["timezone"])
@@ -213,6 +218,10 @@ def update_entity(request, entity_id: str, payload: dict = Body(default={})):
     if country:
         entity.country_code = country
         changed.append("country_code")
+        tz_name = _country_zone(country)
+        if tz_name:
+            entity.timezone = tz_name
+            changed.append("timezone")
 
     raw_currency = _first(
         payload.get("currency_id"), payload.get("currency"), payload.get("currency_code")
@@ -248,12 +257,6 @@ def update_entity(request, entity_id: str, payload: dict = Body(default={})):
             raise OnboardingValidationError(error)
         entity.business_email = email
         changed.append("business_email")
-    if payload.get("timezone"):
-        tz_name, error = resolve.timezone(payload.get("timezone"))
-        if error:
-            raise OnboardingValidationError(error)
-        entity.timezone = tz_name
-        changed.append("timezone")
 
     if changed:
         with transaction.atomic():

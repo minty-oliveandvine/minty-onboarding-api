@@ -71,8 +71,8 @@ never a real one (see "Never let a test navigate to step 9" below).
       answers 409; with no currency, or more decimals than the currency allows, 400; with a
       blank (missing, `null`, `""`, whitespace) amount, 400 "The opening balance is still
       empty. Add the amount to continue." and nothing written.
-- [ ] `POST /create` / `PUT /entity/{id}` with `timezone` saves it to `entities.timezone`;
-      `"Mars/Olympus"` is 400. A create naming only a country takes that country's currency.
+- [ ] `POST /create` / `PUT /entity/{id}` set `entities.timezone` from the country (HK ->
+      `Asia/Hong_Kong`, AU -> `Australia/Sydney`); a sent `timezone` is ignored. A create naming only a country takes that country's currency.
 - [ ] `POST /finalize` with Petty Cash on and no Xero (or fewer than 6 accounts / 3 contacts)
       answers 409 with `missing`, and the company is still `onboarding`; Payment Request needs
       a ticked bill code. With everything set it goes live as before.

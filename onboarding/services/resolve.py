@@ -28,7 +28,6 @@ version is not carried over -- the protection is not dropped, it moved into the 
 
 import re
 import uuid as _uuid
-from zoneinfo import available_timezones
 
 from minty_db.models import CountryInfo, CurrencyInfo
 
@@ -108,27 +107,6 @@ KEEPS_LEADING_ZERO = {"39", "378"}
 PHONE_INVALID = "Please check the phone number and its country code."
 
 _PHONE_SHAPE = re.compile(r"\+[0-9 ()\-.]+")
-
-
-#: ``entities.timezone`` is VARCHAR(30); a few IANA names are longer and cannot be stored.
-TIMEZONE_MAX = 30
-TIMEZONE_INVALID = "That timezone isn't one I recognise."
-
-
-def timezone(value) -> tuple[str | None, str]:
-    """The browser's IANA zone (``Intl.DateTimeFormat().resolvedOptions().timeZone``) ->
-    ``(zone or None, error message)``.
-
-    Step 1 sends it with no field on screen, so an empty value is simply "not sent" (None,
-    nothing written). Anything sent must be a real IANA name that fits the column - checked
-    here, not trusted, because this is a plain JSON endpoint.
-    """
-    text = (value or "").strip()
-    if not text:
-        return None, ""
-    if len(text) > TIMEZONE_MAX or text not in available_timezones():
-        return None, TIMEZONE_INVALID
-    return text, ""
 
 
 def contact_phone(value) -> tuple[str | None, str]:

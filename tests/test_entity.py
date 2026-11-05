@@ -856,30 +856,41 @@ def test_an_unresolvable_country_on_update_changes_nothing(
 
 
 # ---------------------------------------------------------------------------
-# Round 2 (2026-10-13): the browser's timezone, the country's currency, the creator's join date
+# Round 2 (2026-10-13): the timezone (the country's since 2026-11-04), the country's
+# currency, the creator's join date
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_the_browser_timezone_is_saved_on_create_and_edit(
+def test_the_company_takes_its_country_s_timezone_on_create_and_edit(
     client, auth, countries, currencies, modules
 ):
+    """minty_shared.time.country_timezone, never the browser's zone (owner, 2026-11-04)."""
     entity_id = post_create(
-        client, auth, entity_name="Tz Co", **STEP1, timezone="Asia/Hong_Kong"
+        client, auth, entity_name="Tz Co", **STEP1, timezone="Europe/London"
     ).json()["entity_id"]
     assert Entity.objects.get(id=entity_id).timezone == "Asia/Hong_Kong"
 
-    assert put_entity(client, auth, entity_id, timezone="Asia/Singapore").status_code == 200
-    assert Entity.objects.get(id=entity_id).timezone == "Asia/Singapore"
+    assert put_entity(client, auth, entity_id, country_id="AU").status_code == 200
+    assert Entity.objects.get(id=entity_id).timezone == "Australia/Sydney"
+
+    # A zone sent on its own changes nothing, and is not refused either.
+    assert put_entity(client, auth, entity_id, timezone="Mars/Olympus").status_code == 200
+    assert Entity.objects.get(id=entity_id).timezone == "Australia/Sydney"
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "value", ["Mars/Olympus", "not a zone", "America/Argentina/ComodRivadavia"]
-)
-def test_an_unusable_timezone_is_400(client, auth, countries, currencies, modules, value):
-    """Unknown to the IANA database, or longer than the 30-character column."""
-    resp = post_create(client, auth, entity_name="Bad Tz Co", **STEP1, timezone=value)
-    assert resp.status_code == 400
-    assert not Entity.objects.filter(name="Bad Tz Co").exists()
+def test_a_country_the_map_does_not_list_keeps_the_stored_timezone(
+    client, auth, countries, currencies, modules, monkeypatch, caplog
+):
+    from onboarding import api_entity
+
+    entity_id = post_create(client, auth, entity_name="Unmapped Co", **STEP1).json()["entity_id"]
+    monkeypatch.setattr(api_entity, "country_timezone", lambda code: None)
+    with caplog.at_level("WARNING"):
+        assert put_entity(client, auth, entity_id, country_id="AF").status_code == 200
+    entity = Entity.objects.get(id=entity_id)
+    assert entity.country_code == "AF"
+    assert entity.timezone == "Asia/Hong_Kong"
+    assert "no timezone for country AF" in caplog.text
 
 
 @pytest.mark.django_db

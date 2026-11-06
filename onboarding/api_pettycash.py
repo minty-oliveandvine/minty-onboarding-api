@@ -4,7 +4,10 @@ D1 PORTED HERE: ``sales-methods`` and ``opening-balance``. Neither touches Xero 
 ``payment_methods.py`` in Flask has zero Xero references, and the opening balance is two
 columns on the settings row. Both are clean ports.
 
-D2 PROXIED TO FLASK: ``account-codes``, ``contacts``, ``contacts/create``, ``bill-codes``.
+D2 PORTED 2026-11-06 (Phase 4 of the Flask retirement): ``account-codes``, ``contacts``,
+``contacts/create``, ``bill-codes`` (``services/xero_lists.py``). They were proxied to Flask until
+then, for the reasons below, which no longer hold: accounts-api is now the one Xero rail (the token
+and the one sync), and this service only uses tokens it is given, as minty-payment-request-api does.
 
 WHY D2 IS NOT PORTED
 
@@ -29,12 +32,13 @@ These four move when ``xero-service`` does. Until then they sit beside Groups F 
 Flask side of the write rule.
 """
 
+from django.http import JsonResponse
 from ninja import Body, Router, Schema
 
-from core import minty_client
 from core.permissions import entity_for_member, require_entity_id
 from onboarding.services import opening_balance as opening_service
 from onboarding.services import sales_methods as sales_service
+from onboarding.services import xero_lists
 
 pettycash_router = Router()
 
@@ -100,48 +104,49 @@ def post_opening_balance(request, payload: OpeningBalanceIn):
 
 
 # ---------------------------------------------------------------------------
-# D2 -- proxied to Flask. Xero and bills territory; see the module header.
+# D2 -- the Xero lists, done here since Phase 4 of the Flask retirement (2026-11-06);
+# onboarding/services/xero_lists.py. Each answer is Flask's (status and body).
 # ---------------------------------------------------------------------------
+def _answer(result: tuple[dict, int]) -> JsonResponse:
+    body, status = result
+    return JsonResponse(body, status=status)
+
+
+def _entity_from(payload) -> str:
+    return require_entity_id(payload.get("entity_id") if isinstance(payload, dict) else "")
+
+
 @pettycash_router.get("/account-codes")
 def get_account_codes(request, entity_id: str = ""):
-    """Xero-sourced account options plus current selections. 409 until Xero is connected."""
-    entity_id = require_entity_id(entity_id)
-    return minty_client.proxy(
-        request,
-        "/api/onboarding/account-codes",
-        method="GET",
-        params={"entity_id": entity_id},
-    )
+    """Step 5's lists, live from Xero, and the current choices. 409 until Xero is connected."""
+    return _answer(xero_lists.account_code_options(request.auth_user_id, require_entity_id(entity_id)))
 
 
 @pettycash_router.post("/account-codes")
 def post_account_codes(request, payload: dict = Body(default={})):
-    return minty_client.proxy(request, "/api/onboarding/account-codes", json=payload)
+    return _answer(xero_lists.save_account_codes(request.auth_user_id, _entity_from(payload),
+                                                 payload.get("expense_codes"), payload.get("mapping")))
 
 
 @pettycash_router.post("/contacts")
 def post_contacts(request, payload: dict = Body(default={})):
-    return minty_client.proxy(request, "/api/onboarding/contacts", json=payload)
+    return _answer(xero_lists.save_contacts(request.auth_user_id, _entity_from(payload), payload.get("contacts")))
 
 
 @pettycash_router.post("/contacts/create")
 def post_contacts_create(request, payload: dict = Body(default={})):
-    """Creates a contact IN XERO. The clearest case for the proxy in the whole group."""
-    return minty_client.proxy(request, "/api/onboarding/contacts/create", json=payload)
+    """Creates a contact IN XERO (a supplier), stored so the dropdowns show it at once."""
+    name = payload.get("name") or payload.get("contact_name") or ""
+    return _answer(xero_lists.create_contact(request.auth_user_id, _entity_from(payload), name))
 
 
 @pettycash_router.get("/bill-codes")
 def get_bill_codes(request, entity_id: str = ""):
-    """Bill chart-of-accounts tick state, from minty-payment-request-api's snapshot table."""
-    entity_id = require_entity_id(entity_id)
-    return minty_client.proxy(
-        request,
-        "/api/onboarding/bill-codes",
-        method="GET",
-        params={"entity_id": entity_id},
-    )
+    """The bill codes a payment request may use and which are ticked."""
+    return _answer(xero_lists.bill_code_options(request.auth_user_id, require_entity_id(entity_id)))
 
 
 @pettycash_router.post("/bill-codes")
 def post_bill_codes(request, payload: dict = Body(default={})):
-    return minty_client.proxy(request, "/api/onboarding/bill-codes", json=payload)
+    return _answer(xero_lists.save_bill_codes(request.auth_user_id, _entity_from(payload),
+                                              payload.get("selected_codes"), payload.get("default_code")))

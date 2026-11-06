@@ -51,3 +51,4 @@ LOGGING["handlers"]["file_api"] = {"class": "logging.NullHandler"}  # noqa: F405
 PETTY_CASH_URL = "http://flask.invalid"
 SUBSCRIPTION_API_URL = "http://subscription-api.invalid"
 XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"
+XERO_SYNC_URL = f"{PETTY_CASH_URL}/api/internal/xero/sync"

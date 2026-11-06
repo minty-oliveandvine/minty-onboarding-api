@@ -39,6 +39,14 @@ PORTED = {
     "GET /sales-methods",
     "POST /sales-methods",
     "POST /opening-balance",
+    # Group D2 -- the Xero lists, ported 2026-11-06 (Phase 4 of the Flask retirement); their Xero
+    # and sync calls go through core/xero_client.py, the token through core/xero_tokens.py.
+    "GET /account-codes",
+    "POST /account-codes",
+    "POST /contacts",
+    "POST /contacts/create",
+    "GET /bill-codes",
+    "POST /bill-codes",
     # Group E -- listing is local; POST /invite is NOT (see PROXIED).
     "GET /invite",
     "POST /invite/cancel",
@@ -50,13 +58,6 @@ PORTED = {
 #: subscription state (minty-subscription-api), a Xero token or a Flask-owned URL (Flask) --
 #: so duplicating it would mean two writers against something that permits only one.
 PROXIED = {
-    # Group D2 -- Xero chart of accounts, Xero contacts, minty-payment-request-api's bill codes
-    "GET /account-codes",
-    "POST /account-codes",
-    "POST /contacts",
-    "POST /contacts/create",
-    "GET /bill-codes",
-    "POST /bill-codes",
     # Group E -- sending. The email links into a Flask route and uses a Flask template, so
     # a URL built here would be a guess at someone else's routing that fails silently.
     "POST /invite",
@@ -189,8 +190,12 @@ def test_the_whole_flask_surface_is_answered():
 
     36 -> 37 on 2026-11-05: ``POST /me/contact`` joins, proxied, for the "Talk to Minty" chat
     (Flask's ``/api/me/contact`` mails the message; its CORS does not admit this origin either).
+
+    14/23 -> 20/17 on 2026-11-06: the six Xero-list routes (account codes, contacts, a new
+    contact, bill codes) are implemented here (Phase 4 of the Flask retirement): accounts-api is
+    the one Xero rail now (the token and the one sync), so "Flask owns Xero" no longer holds.
     """
-    assert len(PORTED) == 14
-    assert len(PROXIED) == 23
+    assert len(PORTED) == 20
+    assert len(PROXIED) == 17
     assert len(EXPECTED) == 37
     assert set(_operations()) == EXPECTED

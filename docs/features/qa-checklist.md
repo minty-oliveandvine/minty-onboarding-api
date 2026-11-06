@@ -78,9 +78,11 @@ never a real one (see "Never let a test navigate to step 9" below).
       a ticked bill code. With everything set it goes live as before.
 - [ ] `POST /invite/resend` sends the invitation again; a second press within the cooldown is
       429 with `retry_after`.
-- [ ] `GET/POST /account-codes`, `POST /contacts`, `POST /contacts/create`, `GET/POST
-      /bill-codes` all operate over rows Minty already synced from Xero — none of them talk
-      to Xero directly from here.
+- [ ] `GET /account-codes` lists live from Xero (system accounts left out of the Director
+      list and the codes); `POST /account-codes` and `POST /contacts` save over stored rows,
+      asking accounts-api's sync for any choice not stored yet; `POST /contacts/create` makes a
+      supplier in Xero and it shows in the dropdown at once; `GET/POST /bill-codes` keep at
+      least one code ticked and a default among them. A company with no Xero yet is 409.
 
 ## Invitations
 

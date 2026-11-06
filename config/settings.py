@@ -163,6 +163,10 @@ MINTY_PROXY_TIMEOUT = 20
 # public internet -- restrict it at the ingress.
 XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"
 XERO_TOKEN_SERVICE_TIMEOUT = 15
+# accounts-api's one Xero account/contact sync, on the same host (Phase 4 of the Flask retirement,
+# 2026-11-06; onboarding/services/xero_lists.py), and Xero's accounting API for the wizard's lists.
+XERO_SYNC_URL = f"{PETTY_CASH_URL}/api/internal/xero/sync"
+XERO_API_BASE_URL = (os.environ.get("XERO_API_BASE_URL") or "https://api.xero.com/api.xro/2.0").rstrip("/")
 
 # ---------------------------------------------------------------------------
 # Logging - one line format for every Minty backend (minty_shared.logctx):

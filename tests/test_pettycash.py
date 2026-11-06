@@ -23,8 +23,6 @@ from minty_db.models import (
     UserEntity,
 )
 
-from core import minty_client
-from core.exceptions import UpstreamError
 from tests.conftest import make_token
 
 SALES = "/api/onboarding/sales-methods"
@@ -530,70 +528,13 @@ def test_opening_balance_requires_membership(client, other_user, entity):
 # D2 -- the proxies. About forwarding, not about Xero.
 # ---------------------------------------------------------------------------
 @pytest.mark.django_db
-def test_a_proxied_endpoint_forwards_and_relays_the_status(client, auth, entity, monkeypatch):
-    """Flask's status reaches the wizard as itself.
-
-    409 here means "connect to Xero first", and the wizard has copy for exactly that. If the
-    proxy flattened it into a 200 or a 500 the user would be told the wrong thing.
-    """
-    seen = {}
-
-    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
-        seen.update(path=path, method=method, json=json, params=params)
-        return {"connected": False, "error": "Connect to Xero first."}, 409
-
-    monkeypatch.setattr(minty_client, "forward", fake_forward)
-
-    resp = client.get(ACCOUNT_CODES, {"entity_id": entity.id}, **auth)
-    assert resp.status_code == 409
-    assert resp.json()["connected"] is False
-    assert seen["path"] == "/api/onboarding/account-codes"
-    assert seen["method"] == "GET"
-    assert seen["params"] == {"entity_id": entity.id}
-
-
-@pytest.mark.django_db
-def test_a_proxied_post_forwards_the_body_unchanged(client, auth, entity, monkeypatch):
-    seen = {}
-
-    def fake_forward(request, path, *, method="POST", json=None, params=None, base=None):
-        seen.update(path=path, json=json)
-        return {"status": "success"}, 200
-
-    monkeypatch.setattr(minty_client, "forward", fake_forward)
-
-    body = {"entity_id": entity.id, "name": "Some Supplier"}
-    resp = post_json(client, auth, CONTACTS_CREATE, body)
-    assert resp.status_code == 200
-    assert seen["path"] == "/api/onboarding/contacts/create"
-    assert seen["json"] == body
-
-
-@pytest.mark.django_db
-def test_an_unreachable_flask_becomes_a_502_with_readable_copy(client, auth, entity, monkeypatch):
-    """Not an HTML error page, and not a traceback -- the wizard renders ``error`` in a toast."""
-
-    def boom(request, path, **kwargs):
-        raise UpstreamError(minty_client.UNREACHABLE, status=502)
-
-    monkeypatch.setattr(minty_client, "forward", boom)
-
-    resp = client.get(BILL_CODES, {"entity_id": entity.id}, **auth)
-    assert resp.status_code == 502
-    assert resp.json() == {"error": minty_client.UNREACHABLE}
-
-
-@pytest.mark.django_db
-def test_a_proxied_endpoint_still_needs_a_token(client, entity):
-    """The proxy forwards the caller's OWN token, so it must have one to forward.
-
-    This is what stops the service becoming an unauthenticated door into Flask.
-    """
+def test_a_xero_list_still_needs_a_token(client, entity):
+    """No onboarding token, no answer (``services/xero_lists.py`` has its own tests)."""
     assert client.get(ACCOUNT_CODES, {"entity_id": entity.id}).status_code == 401
 
 
 @pytest.mark.django_db
-def test_a_proxied_endpoint_requires_an_entity_id(client, auth):
+def test_a_xero_list_requires_an_entity_id(client, auth):
     resp = client.get(ACCOUNT_CODES, **auth)
     assert resp.status_code == 400
     assert resp.json() == {"error": "entity_id is required"}

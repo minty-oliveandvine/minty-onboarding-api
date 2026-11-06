@@ -110,7 +110,25 @@ account shares it. Blank means the payer's own address is used instead.
   (the wizard skips the call while its field is blank). Flask's fallback (`save_opening_balance`) does the same.
 - `GET/POST /account-codes`, `POST /contacts`, `POST /contacts/create` (a new Xero
   contact), `GET/POST /bill-codes` — the expense accounts, the petty-cash contact mapping
-  and the bills' account codes, over the rows Minty synced.
+  and the bills' account codes (`services/xero_lists.py`; ported from Flask 2026-11-06, Phase
+  4 of the Flask retirement - proxied until then). Flask's answers, statuses and sentences;
+  `COA_VIEW` to read, `COA_UPDATE` to save, `CONTACT_CREATE` for a new contact (403
+  `{"error": "Access denied"}`); no Xero yet or no working token is 409
+  `{error, connected: false}`. The token comes from accounts-api and Xero is called through
+  `core/xero_client.py` - this service never refreshes one.
+  - `GET /account-codes` asks Xero live (accounts and every page of contacts), as Flask did,
+    because only Xero's answer marks the system accounts it leaves out (the Director list, the
+    codes). Xero not answering is a 502 with a sentence (Flask showed empty lists).
+  - `POST /account-codes` asks accounts-api's one sync first (`POST /api/internal/xero/sync`),
+    then resolves each chosen Xero id to its stored row (a choice still missing is 409 naming
+    it; Flask kept the old value silently); a key absent keeps its column, an empty one clears
+    it; the discrepancy bank mirrors the petty cash bank; the ticked codes are exactly the
+    posted ones, at least one when the company has any.
+  - `POST /contacts` resolves from the stored contacts, asking the sync once only when one is
+    missing. `POST /contacts/create` makes a supplier in Xero and stores it
+    (`category = expense_contact`); Xero refusing is 502.
+  - `GET /bill-codes` reads `entity_bill_account_xero` (asking the sync only when the company
+    has none); `POST` ticks exactly the posted codes, at least one, with a default among them.
 
 ## Invitations (`services/invites.py`)
 

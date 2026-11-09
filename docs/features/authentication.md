@@ -2,7 +2,7 @@
 
 This service **verifies tokens; it never mints them** (`core/auth.py`). Minty (Flask)
 signs the person in — email OTP or Xero — mints the onboarding JWT and hands it to the
-wizard in the launch URL; the system-wide picture is `Minty/docs/features/authentication.md`.
+wizard in the launch URL; the system-wide picture is `minty-accounts-api/docs/features/authentication.md`.
 The repo `README.md` §Auth is the short version of this page.
 
 ## The bearer token

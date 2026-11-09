@@ -9,7 +9,7 @@ tokens, module grants and mail to Flask.
 
 | Feature | Document |
 |---|---|
-| Verifying the onboarding token, membership per endpoint, the permission port, what this service never does | [authentication.md](authentication.md) — Minty's `docs/features/authentication.md` has the system-wide picture |
+| Verifying the onboarding token, membership per endpoint, the permission port, what this service never does | [authentication.md](authentication.md) — minty-accounts-api's `docs/features/authentication.md` has the system-wide picture |
 | Every `/api/onboarding/*` endpoint: reference data, resume state, the company, petty-cash setup, invitations, the proxies (including the sidebar's My Profile sheet) | [wizard-api.md](wizard-api.md) |
 | The one log line (trace, user, entity, step), the two loggers, what is sent to Flask | [logging.md](logging.md) |
 | Manual QA checklist for this service, alongside the automated suites | [qa-checklist.md](qa-checklist.md) |

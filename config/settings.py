@@ -138,7 +138,10 @@ DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
 # only modules that make those calls, so the rule is enforceable by reading two
 # files.
 # ---------------------------------------------------------------------------
-PETTY_CASH_URL = os.environ.get("PETTY_CASH_URL", "http://localhost:8010").rstrip("/")
+# Required outside development (no silent default): locally it is accounts-api on 8002.
+ACCOUNTS_API_URL = (os.environ.get("ACCOUNTS_API_URL") or ("http://localhost:8002" if DEBUG else "")).strip().rstrip("/")
+if not ACCOUNTS_API_URL:
+    raise ImproperlyConfigured("ACCOUNTS_API_URL is required and is not set")
 # Required outside development: a missing value would send every card, consent and
 # finalize call to a localhost that does not exist on the host, and the wizard would
 # only ever say "something went wrong".
@@ -146,12 +149,12 @@ SUBSCRIPTION_API_URL = os.environ.get("SUBSCRIPTION_API_URL", "").strip().rstrip
 if not SUBSCRIPTION_API_URL:
     if not DEBUG:
         raise ImproperlyConfigured("SUBSCRIPTION_API_URL is not set.")
-    SUBSCRIPTION_API_URL = "http://localhost:8000"
+    SUBSCRIPTION_API_URL = "http://localhost:8001"
 # Seconds. A constant, not configuration.
 MINTY_PROXY_TIMEOUT = 20
 
 # Flask's internal Xero token endpoint, authenticated with the shared SECRET_KEY. Derived
-# from PETTY_CASH_URL, the same way minty-payment-request-api derives it, so the two
+# from ACCOUNTS_API_URL, the same way minty-payment-request-api derives it, so the two
 # services cannot point at different token services.
 #
 # These were previously read by core/xero_tokens.py via getattr() with a fallback, but were
@@ -161,11 +164,11 @@ MINTY_PROXY_TIMEOUT = 20
 #
 # SECURITY: this endpoint vends live Xero access tokens. It must not be routable from the
 # public internet -- restrict it at the ingress.
-XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"
+XERO_TOKEN_SERVICE_URL = f"{ACCOUNTS_API_URL}/api/internal/xero/token"
 XERO_TOKEN_SERVICE_TIMEOUT = 15
 # accounts-api's one Xero account/contact sync, on the same host (Phase 4 of the Flask retirement,
 # 2026-11-06; onboarding/services/xero_lists.py), and Xero's accounting API for the wizard's lists.
-XERO_SYNC_URL = f"{PETTY_CASH_URL}/api/internal/xero/sync"
+XERO_SYNC_URL = f"{ACCOUNTS_API_URL}/api/internal/xero/sync"
 XERO_API_BASE_URL = (os.environ.get("XERO_API_BASE_URL") or "https://api.xero.com/api.xro/2.0").rstrip("/")
 
 # ---------------------------------------------------------------------------

@@ -48,7 +48,7 @@ LOGGING["handlers"]["file_api"] = {"class": "logging.NullHandler"}  # noqa: F405
 # No test may reach the real Flask app. Proxy tests stub the transport; this value
 # exists so an un-stubbed call fails fast against an obviously fake host instead of
 # quietly hitting a developer localhost.
-PETTY_CASH_URL = "http://flask.invalid"
+ACCOUNTS_API_URL = "http://flask.invalid"
 SUBSCRIPTION_API_URL = "http://subscription-api.invalid"
-XERO_TOKEN_SERVICE_URL = f"{PETTY_CASH_URL}/api/internal/xero/token"
-XERO_SYNC_URL = f"{PETTY_CASH_URL}/api/internal/xero/sync"
+XERO_TOKEN_SERVICE_URL = f"{ACCOUNTS_API_URL}/api/internal/xero/token"
+XERO_SYNC_URL = f"{ACCOUNTS_API_URL}/api/internal/xero/sync"

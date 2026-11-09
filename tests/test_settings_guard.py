@@ -13,7 +13,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 
 def _load_settings(monkeypatch, env):
-    for k in ("SECRET_KEY", "APP_ENV", "SUBSCRIPTION_API_URL"):
+    for k in ("SECRET_KEY", "APP_ENV", "SUBSCRIPTION_API_URL", "ACCOUNTS_API_URL"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -50,6 +50,7 @@ def test_a_real_key_boots_in_production(monkeypatch):
         {
             "APP_ENV": "production",
             "SECRET_KEY": "x" * 64,
+            "ACCOUNTS_API_URL": "https://accounts-api.example",
             "SUBSCRIPTION_API_URL": "https://subscription.example/",
         },
     )
@@ -61,12 +62,30 @@ def test_a_real_key_boots_in_production(monkeypatch):
 def test_production_refuses_to_boot_without_the_subscription_api(monkeypatch):
     """Cards, consent and finalize's trial start all go there; no silent localhost."""
     with pytest.raises(ImproperlyConfigured, match="SUBSCRIPTION_API_URL is not set"):
-        _load_settings(monkeypatch, {"APP_ENV": "production", "SECRET_KEY": "x" * 64})
+        _load_settings(
+            monkeypatch,
+            {"APP_ENV": "production", "SECRET_KEY": "x" * 64, "ACCOUNTS_API_URL": "https://accounts-api.example"},
+        )
 
 
 def test_development_defaults_the_subscription_api_to_localhost(monkeypatch):
     mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
-    assert mod.SUBSCRIPTION_API_URL == "http://localhost:8000"
+    assert mod.SUBSCRIPTION_API_URL == "http://localhost:8001"
+
+
+def test_production_refuses_to_boot_without_accounts_api(monkeypatch):
+    """The Xero token service, the sync and every forwarded call go there; no silent localhost."""
+    with pytest.raises(ImproperlyConfigured, match="ACCOUNTS_API_URL is required"):
+        _load_settings(
+            monkeypatch,
+            {"APP_ENV": "production", "SECRET_KEY": "x" * 64, "SUBSCRIPTION_API_URL": "https://subscription.example"},
+        )
+
+
+def test_development_defaults_accounts_api_to_localhost(monkeypatch):
+    mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
+    assert mod.ACCOUNTS_API_URL == "http://localhost:8002"
+    assert mod.XERO_TOKEN_SERVICE_URL == "http://localhost:8002/api/internal/xero/token"
 
 
 @pytest.fixture(autouse=True)
@@ -97,6 +116,7 @@ def test_preview_origins_are_off_unless_set(monkeypatch):
         {
             "APP_ENV": "production",
             "SECRET_KEY": "x" * 64,
+            "ACCOUNTS_API_URL": "https://accounts-api.example",
             "SUBSCRIPTION_API_URL": "https://subscription.example",
             "PREVIEW_ORIGIN_REGEX": regex,
         },

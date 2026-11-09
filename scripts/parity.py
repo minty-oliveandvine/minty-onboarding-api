@@ -21,7 +21,7 @@ compared against all of them.
 
 USAGE
 
-    # Flask must be running at PETTY_CASH_URL (default :8010) against the same database.
+    # Flask must be running at ACCOUNTS_API_URL (default :8002) against the same database.
     .venv/Scripts/python scripts/parity.py
     .venv/Scripts/python scripts/parity.py --group B
     .venv/Scripts/python scripts/parity.py --entities 40
@@ -79,7 +79,7 @@ EXPECTED_DIFFS: dict[str, list[tuple[str, str]]] = {
     # rather than left as an unused divergence.
 }
 
-FLASK = settings.PETTY_CASH_URL
+FLASK = settings.ACCOUNTS_API_URL
 
 
 def mint(user_id) -> str:

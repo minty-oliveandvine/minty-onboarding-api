@@ -103,7 +103,7 @@ def test_calls_to_flask_carry_the_trace(monkeypatch, settings):
 
     monkeypatch.setattr(requests, "request", fake_request)
     monkeypatch.setattr(requests, "post", fake_post)
-    settings.PETTY_CASH_URL = "http://flask.test"
+    settings.ACCOUNTS_API_URL = "http://flask.test"
     settings.XERO_TOKEN_SERVICE_URL = "http://flask.test/api/internal/xero/token"
     logctx.start_trace("a1b2c3d4")
     minty_client.forward(SimpleNamespace(headers={"Authorization": "Bearer t"}), "/api/x")

@@ -43,7 +43,7 @@ def test_profile_read_forwards_the_token_and_the_entity(client, auth, monkeypatc
     assert resp.json() == {"first_name": "Ada"}
     [(method, url, kwargs)] = rec.calls
     assert method == "GET"
-    assert url == f"{settings.PETTY_CASH_URL}/api/me/profile"
+    assert url == f"{settings.ACCOUNTS_API_URL}/api/me/profile"
     assert kwargs["params"] == {"entity": "e-1"}
     assert kwargs["json"] is None
     assert kwargs["headers"]["Authorization"] == auth["HTTP_AUTHORIZATION"]
@@ -86,7 +86,7 @@ def test_profile_save_forwards_the_body_unchanged(client, auth, monkeypatch):
     assert resp.json() == {"first_name": "Grace"}
     [(method, url, kwargs)] = rec.calls
     assert method == "PATCH"
-    assert url == f"{settings.PETTY_CASH_URL}/api/me/profile"
+    assert url == f"{settings.ACCOUNTS_API_URL}/api/me/profile"
     assert kwargs["json"] == body
     assert kwargs["params"] == {"entity": "e-1"}
     assert kwargs["headers"]["Authorization"] == auth["HTTP_AUTHORIZATION"]
@@ -158,7 +158,7 @@ def test_contact_forwards_the_token_and_the_body_unchanged(client, auth, monkeyp
     assert resp.json() == {"sent": True, "reply_to": "ada@example.com"}
     [(method, url, kwargs)] = rec.calls
     assert method == "POST"
-    assert url == f"{settings.PETTY_CASH_URL}/api/me/contact"
+    assert url == f"{settings.ACCOUNTS_API_URL}/api/me/contact"
     assert kwargs["json"] == body
     assert kwargs["headers"]["Authorization"] == auth["HTTP_AUTHORIZATION"]
 

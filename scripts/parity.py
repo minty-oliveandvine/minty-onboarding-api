@@ -21,7 +21,7 @@ compared against all of them.
 
 USAGE
 
-    # Flask must be running at ACCOUNTS_API_URL (default :8002) against the same database.
+    # Flask must be running at ACCOUNTS_API_URL (default :8000) against the same database.
     .venv/Scripts/python scripts/parity.py
     .venv/Scripts/python scripts/parity.py --group B
     .venv/Scripts/python scripts/parity.py --entities 40

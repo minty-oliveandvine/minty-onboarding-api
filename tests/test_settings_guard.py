@@ -84,8 +84,8 @@ def test_production_refuses_to_boot_without_accounts_api(monkeypatch):
 
 def test_development_defaults_accounts_api_to_localhost(monkeypatch):
     mod = _load_settings(monkeypatch, {"APP_ENV": "development"})
-    assert mod.ACCOUNTS_API_URL == "http://localhost:8002"
-    assert mod.XERO_TOKEN_SERVICE_URL == "http://localhost:8002/api/internal/xero/token"
+    assert mod.ACCOUNTS_API_URL == "http://localhost:8000"
+    assert mod.XERO_TOKEN_SERVICE_URL == "http://localhost:8000/api/internal/xero/token"
 
 
 @pytest.fixture(autouse=True)

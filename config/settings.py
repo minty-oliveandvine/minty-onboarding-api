@@ -138,8 +138,8 @@ DISPLAY_TIMEZONE = os.environ.get("DISPLAY_TIMEZONE", "Asia/Hong_Kong")
 # only modules that make those calls, so the rule is enforceable by reading two
 # files.
 # ---------------------------------------------------------------------------
-# Required outside development (no silent default): locally it is accounts-api on 8002.
-ACCOUNTS_API_URL = (os.environ.get("ACCOUNTS_API_URL") or ("http://localhost:8002" if DEBUG else "")).strip().rstrip("/")
+# Required outside development (no silent default): locally it is accounts-api on 8000.
+ACCOUNTS_API_URL = (os.environ.get("ACCOUNTS_API_URL") or ("http://localhost:8000" if DEBUG else "")).strip().rstrip("/")
 if not ACCOUNTS_API_URL:
     raise ImproperlyConfigured("ACCOUNTS_API_URL is required and is not set")
 # Required outside development: a missing value would send every card, consent and

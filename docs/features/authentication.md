@@ -56,7 +56,7 @@ against the Flask matrix.
 `APP_ENV` (`development` turns on DEBUG; anything else refuses the placeholder `SECRET_KEY`),
 `SECRET_KEY` (shared), `ACCOUNTS_API_URL` (minty-accounts-api: the proxies, and the token service derived from it:
 `ACCOUNTS_API_URL` + `/api/internal/xero/token`; required outside development, default
-`http://localhost:8002` there), `SUBSCRIPTION_API_URL` (minty-subscription-api;
+`http://localhost:8000` there), `SUBSCRIPTION_API_URL` (minty-subscription-api;
 required outside development, default `http://localhost:8001` there — 2026-10-06),
 `DATABASE_URL` `?schema=` → `DB_SCHEMA` (the
 `search_path`), `ONBOARDING_WEB_URL` / `CORS_ALLOWED_ORIGINS` for the wizard's origin.

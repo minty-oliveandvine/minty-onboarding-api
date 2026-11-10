@@ -100,6 +100,25 @@ def delete_account(request, account_id: str, entity_id: str = ""):
     return _answer(accounting.delete_account(request.auth_user_id, entity_id, account_id))
 
 
+@accounting_router.post("/accounting/xero-accounts")
+def post_xero_accounts(request, payload: dict = Body(default={})):
+    """X2, X3 - ``{entity_id, kind: "sales" | "expense", account_ids}``: exactly these of the
+    Xero chart's accounts are the ones Minty uses. Answers the whole step again."""
+    entity_id = _entity(request, payload)
+    return _answer(
+        accounting.set_xero_ticks(
+            request.auth_user_id, entity_id, payload.get("kind"), payload.get("account_ids")
+        )
+    )
+
+
+@accounting_router.post("/accounting/xero-refresh")
+def post_xero_refresh(request, payload: dict = Body(default={})):
+    """Refresh from Xero - ``{entity_id}``: the chart synced now, then the whole step again."""
+    entity_id = _entity(request, payload)
+    return _answer(accounting.refresh_from_xero(request.auth_user_id, entity_id))
+
+
 @accounting_router.post("/accounting/slots")
 def post_slot(request, payload: dict = Body(default={})):
     """``{entity_id, role, account_id | null}`` - choose (or clear) a daily-closing account."""

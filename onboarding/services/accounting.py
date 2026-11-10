@@ -39,9 +39,11 @@ from minty_db.models import (
     EntityAccountXero,
     EntityBillAccountXero,
     EntityPettycashSettings,
+    EntitySaleSetting,
     ReportExpense,
 )
 
+from core import xero_client
 from core.policy import Permission, has_permission_by_user_id
 
 logger = logging.getLogger("minty-onboarding")
@@ -159,8 +161,28 @@ def _kind_of(account_type: str | None) -> str | None:
     return next((k for k, types in KINDS.items() if account_type in types), None)
 
 
-def _row(account: AccountInfo) -> dict:
+def _connected(entity: Entity) -> bool:
+    """Holding an organisation and not disconnected: a disconnect keeps the organisation
+    (2026-11-10), so the org alone is no connection."""
+    return bool(entity.xero_org_id) and entity.status != "disconnected"
+
+
+def _used_ids(entity_id) -> set:
+    """The Xero accounts Minty uses (X2, X3): Petty Cash's ``account_module`` rows, and the old
+    wizard's expense ticks (``entity_account_xero``) for a company that ticked before X3."""
+    modules = AccountModule.objects.filter(
+        entity_id=entity_id, module_code="PETTY_CASH", is_active=True
+    ).values_list("account_id", flat=True)
+    old = EntityAccountXero.objects.filter(
+        account__entity_id=entity_id, is_active=True
+    ).values_list("account_id", flat=True)
+    return set(modules) | set(old)
+
+
+def _row(account: AccountInfo, used: bool = True) -> dict:
     return {
+        # A row the company made in Minty is in use by being there; a Xero row once it is ticked.
+        "used": used,
         "id": str(account.id),
         "code": account.code or "",
         "name": account.name,
@@ -214,14 +236,20 @@ def setup(user_id, entity_id) -> tuple[dict, int]:
     if entity is None:
         return NOT_FOUND, 404
     accounts = list(_active(entity_id).order_by("code", "name"))
+    used = _used_ids(entity_id)
     lists = {
-        kind: [_row(a) for a in accounts if a.account_type in types and not a.is_system]
+        kind: [
+            _row(a, used=not a.xero_account_id or a.id in used)
+            for a in accounts
+            if a.account_type in types and not a.is_system
+        ]
         for kind, types in KINDS.items()
     }
     settings = _settings(entity_id)
     by_id = {a.id: a for a in accounts}
     slots = {}
-    for role, (column, types) in SLOTS.items():
+    for role in _slot_roles(entity):
+        column, types = SLOTS[role]
         chosen = by_id.get(getattr(settings, column, None)) if settings else None
         slots[role] = {
             "account": _row(chosen) if chosen else None,
@@ -232,7 +260,7 @@ def setup(user_id, entity_id) -> tuple[dict, int]:
     )
     return {
         **answers(entity),
-        "connected": bool(entity.xero_org_id),
+        "connected": _connected(entity),
         "accounts": lists,
         "slots": slots,
         "slots_ready": sum(1 for s in slots.values() if s["account"]),
@@ -275,6 +303,30 @@ def set_mode(user_id, entity_id, mode) -> tuple[dict, int]:
     return answers(entity), 200
 
 
+def _cash_method(entity_id, on: bool) -> None:
+    """The company's Cash sales method follows the cash answer (owner's brief, 2026-11-10): "We bank
+    all sales" turns it off, so Petty Cash asks for no cash sales; yes turns it on again, linking it
+    when the company has no link yet (as a new company gets in entity_create)."""
+    from onboarding.services.entity_create import DEFAULT_SALES_METHODS
+    from onboarding.services.sales_methods import ensure_catalog_row
+
+    name, value_name, sale_type, order = next(m for m in DEFAULT_SALES_METHODS if m[1] == "cash_sales")
+    changed = EntitySaleSetting.objects.filter(
+        entity_id=entity_id, sale__value_name=value_name
+    ).update(is_active=on)
+    if on and not changed:
+        catalog = ensure_catalog_row(name, sale_type, value_name=value_name, display_order=order)
+        EntitySaleSetting.objects.create(
+            entity_id=entity_id, sale=catalog, is_active=True, display_order=order
+        )
+
+
+def _slot_roles(entity: Entity) -> list[str]:
+    """Daily closing's accounts for this company: a company banking all its sales has no cash
+    sales, so no cash-sale account."""
+    return [r for r in SLOTS if not (r == "cash_sale" and entity.uses_sales_cash is False)]
+
+
 def set_business(user_id, entity_id, business_type, uses_sales_cash) -> tuple[dict, int]:
     """4.2: the business type (empty = "None of these") and the cash question ("Not sure" arrives as
     true). On the Minty path the shared system accounts are added then, hidden: the company starts
@@ -295,6 +347,7 @@ def set_business(user_id, entity_id, business_type, uses_sales_cash) -> tuple[di
         entity.business_type = business_type or None
         entity.uses_sales_cash = uses_sales_cash
         entity.save(update_fields=["business_type", "uses_sales_cash"])
+        _cash_method(entity.id, uses_sales_cash)
         added = _add_shared_rows(user_id, entity) if entity.setup_mode == "minty" else 0
     logger.info(
         "accounting: entity %s answered business=%s cash=%s (%s system accounts added)",
@@ -704,6 +757,74 @@ def delete_account(user_id, entity_id, account_id) -> tuple[dict, int]:
             return {"archived": True}, 200
         _remove(account)
     return {"archived": False}, 200
+
+
+# ---- X2, X3: which of the Xero chart's accounts Minty uses ------------------------------------
+
+NOT_CONNECTED = {"error": "Connect Xero first, then choose the accounts Minty uses."}
+
+
+def set_xero_ticks(user_id, entity_id, kind, account_ids) -> tuple[dict, int]:
+    """Exactly ``account_ids`` of the company's Xero ``kind`` accounts ticked for Petty Cash: its
+    ``account_module`` rows, and for expenses ``entity_account_xero`` too (the apps' old reader)."""
+    if not has_permission_by_user_id(user_id, Permission.COA_UPDATE, entity_id):
+        return DENIED, 403
+    if kind not in KINDS:
+        return {"error": "Choose which accounts to tick: sales or expense."}, 400
+    entity = _entity(entity_id)
+    if entity is None:
+        return NOT_FOUND, 404
+    if not _connected(entity):
+        return NOT_CONNECTED, 409
+    noun = "sales" if kind == "sales" else "expense"
+    wanted = {str(i) for i in account_ids} if isinstance(account_ids, list) else set()
+    if not wanted:
+        return {"error": f"Tick at least one {noun} account to continue."}, 400
+    rows = list(
+        _active(entity_id)
+        .filter(account_type__in=KINDS[kind], is_system=False)
+        .exclude(xero_account_id__isnull=True)
+        .exclude(xero_account_id="")
+    )
+    by_id = {str(a.id): a for a in rows}
+    if not wanted <= set(by_id):
+        return {"error": f"Pick only {noun} accounts here. Reload the list and try again."}, 400
+    with transaction.atomic():
+        for account in rows:
+            on = str(account.id) in wanted
+            module, made = AccountModule.objects.get_or_create(
+                account_id=account.id,
+                module_code="PETTY_CASH",
+                defaults={"entity_id": entity.id, "is_active": on},
+            )
+            if not made and module.is_active != on:
+                module.is_active = on
+                if not on:
+                    module.is_default = False
+                module.save(update_fields=["is_active", "is_default"])
+        if kind == "expense":
+            # The old wizard's save (xero_lists._tick_codes): the codes, on every expense type it ticks.
+            from onboarding.services.xero_lists import _tick_codes
+
+            _tick_codes(entity, [by_id[i].xero_code for i in wanted if by_id[i].xero_code])
+    logger.info("xero ticks: entity=%s kind=%s ticked=%s of %s", entity_id, kind, len(wanted), len(rows))
+    return setup(user_id, entity_id)
+
+
+def refresh_from_xero(user_id, entity_id) -> tuple[dict, int]:
+    """Refresh from Xero (X2-X4): accounts-api syncs the chart now; the step reads it again."""
+    if not has_permission_by_user_id(user_id, Permission.COA_VIEW, entity_id):
+        return DENIED, 403
+    entity = _entity(entity_id)
+    if entity is None:
+        return NOT_FOUND, 404
+    if not _connected(entity):
+        return NOT_CONNECTED, 409
+    if not xero_client.sync(entity_id):
+        return {
+            "error": "Xero didn't send your accounts just now. Try Refresh again in a moment."
+        }, 502
+    return setup(user_id, entity_id)
 
 
 def set_slot(user_id, entity_id, role, account_id) -> tuple[dict, int]:

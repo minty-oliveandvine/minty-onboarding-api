@@ -35,6 +35,7 @@ api = NinjaAPI(
 
 register_exception_handlers(api)
 
+from onboarding.api_accounting import accounting_router  # noqa: E402
 from onboarding.api_billing import billing_router  # noqa: E402
 from onboarding.api_entity import entity_router  # noqa: E402
 from onboarding.api_invites import invites_router  # noqa: E402
@@ -58,6 +59,10 @@ api.add_router("/", entity_router, tags=["Entity"])
 # Group D -- petty-cash config. D1 (sales methods, opening balance) is ported; the four
 # Xero/bills endpoints inside it are proxied to Flask. See onboarding/api_pettycash.py.
 api.add_router("/", pettycash_router, tags=["Petty cash"])
+
+# Step 4 with Xero optional (2026-11-10): how Minty keeps the books, the business answers, the
+# company's own accounts and the five daily closing needs. See onboarding/api_accounting.py.
+api.add_router("/", accounting_router, tags=["Accounting setup"])
 
 # Group E -- invitations. List and cancel are ported; sending is proxied because the
 # invite email links into a Flask route. See onboarding/api_invites.py.

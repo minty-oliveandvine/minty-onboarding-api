@@ -593,8 +593,12 @@ def test_the_response_carries_flasks_keys_and_no_others(client, auth, entity, mo
 
     Asserting equality rather than a subset is what keeps it that way: adding a key here
     fails this test, which is the prompt to ask whether the frontend actually wants it.
+
+    2026-11-10: accounting (step 4's answers with Xero optional: the mode, the business type,
+    the cash question) - the wizard resumes step 4 from it, and Flask never had that step.
     """
     flask_keys = {
+        "accounting",
         "entity_id",
         "status",
         "current_step",

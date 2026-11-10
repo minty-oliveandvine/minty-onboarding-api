@@ -52,6 +52,17 @@ PORTED = {
     "POST /invite/cancel",
     # Group G -- finalize flips the company here; its trial start is the subscription API's.
     "POST /finalize",
+    # Step 4 with Xero optional (2026-11-10, services/accounting.py): new here, no Flask original.
+    "GET /accounting",
+    "POST /accounting/mode",
+    "POST /accounting/business",
+    "GET /accounting/autofill",
+    "POST /accounting/autofill",
+    "POST /accounting/autofill/revert",
+    "POST /accounting/accounts",
+    "PATCH /accounting/accounts/{account_id}",
+    "DELETE /accounting/accounts/{account_id}",
+    "POST /accounting/slots",
 }
 
 #: Answered here, executed elsewhere. Each touches a rail another service owns -- Stripe and
@@ -194,8 +205,11 @@ def test_the_whole_flask_surface_is_answered():
     14/23 -> 20/17 on 2026-11-06: the six Xero-list routes (account codes, contacts, a new
     contact, bill codes) are implemented here (Phase 4 of the Flask retirement): accounts-api is
     the one Xero rail now (the token and the one sync), so "Flask owns Xero" no longer holds.
+
+    20/17 -> 30/17 on 2026-11-10: the ten Accounting Setup routes (step 4 with Xero optional) are
+    new here; Flask never had them.
     """
-    assert len(PORTED) == 20
+    assert len(PORTED) == 30
     assert len(PROXIED) == 17
-    assert len(EXPECTED) == 37
+    assert len(EXPECTED) == 47
     assert set(_operations()) == EXPECTED

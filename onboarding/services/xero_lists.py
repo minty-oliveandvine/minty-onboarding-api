@@ -323,10 +323,11 @@ def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         return NOT_FOUND, 404
-    if not entity.xero_org_id:
+    on_its_own = entity.setup_mode == "minty" and not entity.xero_org_id  # its own expense accounts
+    if not entity.xero_org_id and not on_its_own:
         return _not_connected("load payment account codes")
     rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
-    if not rows.exists() and xero_client.sync(entity_id):  # the connect fills it; the sync mirrors it too
+    if not rows.exists() and not on_its_own and xero_client.sync(entity_id):  # the connect fills it; the sync mirrors it too
         rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
     codes, selected, inactive, default = [], [], 0, ""
     for row in rows:
@@ -341,7 +342,7 @@ def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
         else:
             inactive += 1
     codes.sort(key=lambda e: _code_key(e["code"]))
-    return {"connected": True, "bill_codes": codes, "selected_codes": selected,
+    return {"connected": bool(entity.xero_org_id), "bill_codes": codes, "selected_codes": selected,
             "default_all": not selected and inactive == 0, "default_code": default}, 200
 
 
@@ -353,7 +354,7 @@ def save_bill_codes(user_id, entity_id, selected_codes, default_code=None) -> tu
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         return NOT_FOUND, 404
-    if not entity.xero_org_id:
+    if not entity.xero_org_id and entity.setup_mode != "minty":
         return _not_connected("save payment account codes")
     selected = sorted({str(c).strip() for c in selected_codes if str(c).strip()})
     rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)

@@ -33,6 +33,7 @@ from ninja import Body, Router, Status
 from core import minty_client, subscription_client
 from core.exceptions import UpstreamError
 from core.permissions import entity_for_member, require_entity_id
+from onboarding.services import accounting
 from onboarding.services import state as state_service
 
 logger = logging.getLogger("minty-onboarding")
@@ -126,10 +127,21 @@ def setup_gaps(entity) -> list[dict]:
         return []
     pettycash, bills = setup.pettycash_module_enabled, setup.bill_module_enabled
     gaps = []
-    if (pettycash or bills) and not setup.xero_org_linked:
+    if accounting.minty_on_its_own(entity):
+        # Xero optional (2026-11-10): no Xero, no Xero-only contacts, and a missing daily-closing
+        # account only warns (Petty Cash asks again before the first closing). The business
+        # answers come first; bill codes are the company's own expense accounts.
+        if entity.uses_sales_cash is None:
+            gaps.append({"step": 4, "message": "Answer the questions about your business."})
+            return gaps
+    elif (pettycash or bills) and not setup.xero_org_linked:
         gaps.append({"step": 4, "message": "Connect Xero."})
         return gaps  # nothing below can be mapped without it
-    if pettycash and setup.pettycash_accounts_set < setup.pettycash_accounts_total:
+    if (
+        pettycash
+        and not accounting.minty_on_its_own(entity)
+        and (setup.pettycash_accounts_set < setup.pettycash_accounts_total)
+    ):
         gaps.append(
             {
                 "step": 6,
@@ -139,7 +151,11 @@ def setup_gaps(entity) -> list[dict]:
                 ),
             }
         )
-    if pettycash and setup.pettycash_contacts_set < setup.pettycash_contacts_total:
+    if (
+        pettycash
+        and not accounting.minty_on_its_own(entity)
+        and (setup.pettycash_contacts_set < setup.pettycash_contacts_total)
+    ):
         gaps.append(
             {
                 "step": 7,

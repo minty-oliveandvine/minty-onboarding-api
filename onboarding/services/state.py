@@ -42,8 +42,8 @@ import logging
 from minty_db.models import Entity, EntityPettycashSettings, EntitySetupSummary
 
 from core import xero_tokens
+from onboarding.services import accounting, sales_methods
 from onboarding.services import invites as invites_service
-from onboarding.services import sales_methods
 from onboarding.services import steps as step_defs
 from onboarding.services.plans import MODULE_BILL, MODULE_CODES, MODULE_PETTY_CASH
 
@@ -182,8 +182,13 @@ def derive_current_step(
         return step_defs.STEP_ALL_SET
     if not modules:
         return step_defs.STEP_MODULE
-    if not xero.get("connected"):
+    # Step 4 is done when Xero is connected, or (Xero optional, 2026-11-10) when the company keeps
+    # its books in Minty and has answered the business questions; its accounts are chosen there.
+    on_its_own = accounting.minty_on_its_own(entity)
+    if not xero.get("connected") and not (on_its_own and entity.uses_sales_cash is not None):
         return step_defs.STEP_ACCOUNTING
+    if on_its_own:
+        account_codes_done = True  # chosen inside step 4 (4.3-4.5), and a missing one only warns
     # Xero is connected. Petty-cash configuration is the next gate when that module is on.
     if MODULE_PETTY_CASH in modules and not account_codes_done:
         return step_defs.STEP_SALES
@@ -230,6 +235,9 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
         },
         "modules": modules,
         "xero": xero,
+        # Step 4's answers (Xero optional): how Minty keeps the books, the business type and the
+        # cash question. The accounts themselves are GET /accounting.
+        "accounting": accounting.answers(entity),
         "sales_methods": _sales_methods_state(entity.id),
         "opening_balance": _opening_balance_state(setup),
         # Best-effort: a permission gap must not fail the whole resume read. See

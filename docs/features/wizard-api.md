@@ -130,6 +130,40 @@ account shares it. Blank means the payer's own address is used instead.
   - `GET /bill-codes` reads `entity_bill_account_xero` (asking the sync only when the company
     has none); `POST` ticks exactly the posted codes, at least one, with a default among them.
 
+## Accounting Setup - step 4 with Xero optional (`api_accounting.py`, `services/accounting.py`)
+
+New 2026-11-10 (Figma `LGkVZqcyxSIh6pp5ihDjXw` node 348:1007; the design is Minty's
+`docs/modernisation/xero_optional_database.md`; the columns are minty-db v0.5's EXPAND). Step 4
+asks how Minty keeps the books; on its own, the company answers two questions and picks its own
+accounts, with no Xero at all. Every route passes `entity_for_member` first, then the role check
+(`COA_VIEW` to read, `COA_CREATE`/`COA_UPDATE`/`COA_DELETE` to change; refused is 403
+`{"error": "Access denied"}`). Refusals are `{"error", "fields"?}` with Part 11 sentences: 400 for a
+field, 409 for a code or name another active account holds.
+
+| Route | Screen | What |
+|---|---|---|
+| `GET /accounting?entity_id=` | all of step 4 | the answers (`mode`, `business_type`, `uses_sales_cash`, `business_answered`), `accounts.sales`/`accounts.expense` (hidden system accounts left out), the five `slots` with their `options` (right types only), `slots_ready`, `next_code` per type, `types` |
+| `POST /accounting/mode {mode}` | 4.1 | `minty` or `xero` -> `entities.setup_mode`. `minty` is refused (409) while a Xero org is linked; `xero` while the company has its own accounts |
+| `POST /accounting/business {business_type, uses_sales_cash}` | 4.2 | `fnb`/`retail`/`service`/`general`, or null = "None of these"; the cash question is required for every company and "Not sure" arrives as `true`. On the Minty path the template's shared system rows (Petty Cash, Bank, Amount Due to Director) are added then, hidden, and fill their daily-closing accounts |
+| `GET /accounting/autofill?kind=` / `POST {kind, template_ids}` / `POST /accounting/autofill/revert {kind}` | 4.3, 4.4 | the company's template set for `sales` or `expense` (its business type, or General for "None of these"; its cash answer; its country or every country), ticked where the template says; adding skips a row already there and refuses one whose code or name is taken; Revert removes the Auto Fill rows nothing uses |
+| `POST /accounting/accounts {code, name, type, description?, role?}` / `PATCH /accounting/accounts/{id}` / `DELETE /accounting/accounts/{id}` | 4.3b, 4.4a, 4.5a | one account: code (letters, numbers, dots, dashes; up to 10; a bank account may have none), name (up to 80 until CONTRACT widens it), type; `role` also chooses it for that daily-closing account. An account from Xero is changed in Xero (409). Removing deletes an unused account and archives a used one; a system account can't be removed |
+| `POST /accounting/slots {role, account_id \| null}` | 4.5 | `petty_cash`, `bank`, `cash_sale`, `discrepancy`, `director` -> `entity_pettycash_settings`; an account of the wrong type is refused. Missing ones only warn: Petty Cash asks again before the first closing |
+
+Expense accounts show under two headings from their type (`group`: `direct_costs` =
+`cost_of_sales`, "Cost of what you sell"; `expense`/`overheads` = `running_costs`), never a stored
+group (decision 19). **Until each module's own release moves it, an account made here is written
+for the old readers too:** `account_info`'s old `type` (Xero's spelling), `xero_code` and `status`
+beside Minty's `code`/`account_type`/`record_status`/`source`, and an expense account also gets
+Petty Cash's tick (`entity_account_xero`), a Payment Request bill code (`entity_bill_account_xero`
+with no Xero id, like a hand-added code) and its `account_module` rows.
+
+The rest of the wizard follows `setup_mode`: `/state` carries `accounting` (the answers) and
+moves a Minty-only company past step 4 once the business questions are answered (its accounts
+are chosen inside step 4); finalize asks it for neither Xero nor the Xero-only accounts and
+contacts, only the business answers, and it goes live as `disconnected` (the only live value
+before CONTRACT) while the trigger keeps `xero_status = 'not_connected'`; step 8's bill codes are
+its own expense accounts, with no Xero call.
+
 ## Invitations (`services/invites.py`)
 
 `GET /invite` lists pending invitations (`USER_VIEW_ALL`) with `expires_at` and `expired`
@@ -181,8 +215,9 @@ not `scope`).
 
 `POST /finalize {entity_id}` — called on arrival at All Set. Membership via
 `entity_for_member` (400/403/404). First the setup rule (`setup_gaps`, from
-`entity_setup_summary`, only when a module is on): Petty Cash needs Xero plus all six accounts
-and three contacts; Payment Request needs Xero plus at least one ticked bill account code, and
+`entity_setup_summary`, only when a module is on): a company keeping its books in Minty on its
+own (Accounting Setup, above) needs only its business answers; otherwise Petty Cash needs Xero
+plus all six accounts and three contacts; Payment Request needs Xero plus at least one ticked bill account code, and
 a default code (if set) that is ticked - that one read from `entity_bill_account_xero`
 (`EntityBillAccountXero`), since the view has no column for it. Anything missing is a 409 `{"error", "missing": [{"step",
 "message"}]}` and the company stays `onboarding` - All Set lists each with a way back to its
@@ -202,8 +237,8 @@ until an admin confirms billing in minty-web.
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,
-`test_reference.py`, `test_routes.py` (every path is registered; 14 ported, 22 proxied, 36 in
-all, 2026-11-03), `test_me_proxies.py` (the My Profile proxies), `test_finalize.py`, `test_char_schema.py`
+`test_reference.py`, `test_accounting.py` (Accounting Setup), `test_routes.py` (every path is
+registered; 30 ported, 17 proxied, 47 in all, 2026-11-10), `test_me_proxies.py` (the My Profile proxies), `test_finalize.py`, `test_char_schema.py`
 and `test_schema_name.py` (the schema), `test_settings_guard.py`; 399 passed + 1 skipped on
 2026-10-06 (SQLite and Postgres) against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
 `minty-onboarding-web/e2e` (`stack`, `resume`, `xero`, `walk`).

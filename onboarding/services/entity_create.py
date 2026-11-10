@@ -231,7 +231,10 @@ def find_resumable_entity(user_id, name: str) -> Entity | None:
             "entity_id", flat=True
         )
     ]
-    return Entity.objects.filter(id__in=entity_ids, name=name, status="onboarding").first()
+    # An archived company (owner, 2026-11-10) is never the one resumed.
+    return Entity.objects.filter(
+        id__in=entity_ids, name=name, status="onboarding", archived_at__isnull=True
+    ).first()
 
 
 def create_entity_for_user(

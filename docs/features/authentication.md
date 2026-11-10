@@ -19,7 +19,10 @@ reference ones (`server-time`, `currencies`, `countries`). `OnboardingBearerAuth
   door**, unlike minty-payment-request-api: the first authenticated call, `POST /create`, exists to
   create the company the caller will then hold a role on. Every endpoint that names an
   entity checks membership itself — `core/permissions.entity_for_member(user_id,
-  entity_id)` (a `user_entity` row, else 403 with Flask's wording).
+  entity_id)` (a `user_entity` row, else 403 with Flask's wording). An **archived** company
+  (`entities.archived_at`, minty-db v0.5; owner, 2026-11-10) gets the same 403 and sentence, superusers
+  included, so nothing says it exists; and `find_resumable_entity` never resumes one
+  (`tests/test_archived.py`).
 - **The entity comes from the query string or the JSON body, never a header** — that is
   how Flask reads it and how the wizard sends it; `X-Entity-Id` is deliberately absent
   from `CORS_ALLOW_HEADERS` so a header nothing sends cannot be silently ignored.

@@ -57,7 +57,13 @@ def entity_for_member(user_id, entity_id) -> Entity:
     """
     entity_id = require_entity_id(entity_id)
 
-    if not is_member(user_id, entity_id):
+    # An archived company (``archived_at``; owner, 2026-11-10) is refused exactly as a company the
+    # person doesn't belong to - the same status and sentence, superusers included - so nothing
+    # here says it exists.
+    if (
+        not is_member(user_id, entity_id)
+        or Entity.objects.filter(id=entity_id, archived_at__isnull=False).exists()
+    ):
         raise AccessDeniedError("You don't have access to this entity")
 
     entity = Entity.objects.filter(id=entity_id).first()

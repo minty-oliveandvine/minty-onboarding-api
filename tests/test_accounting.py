@@ -552,6 +552,24 @@ def test_a_slot_takes_only_an_account_of_its_type(client, auth, minty):
 
 
 @pytest.mark.django_db
+def test_petty_cash_and_the_bank_cannot_be_the_same_account(client, auth, minty):
+    """As Petty Cash Settings refuses it: the float and the bank it is deposited into are two."""
+    one = _add(client, auth, minty, code="090", name="Petty Cash", type="bank").json()["account"]["id"]
+    two = _add(client, auth, minty, code="091", name="Bank", type="bank").json()["account"]["id"]
+    sentence = ("Petty cash and the bank you deposit into can't be the same account. "
+                "Choose a different one for each.")
+    assert post(client, auth, "/slots", {"entity_id": str(minty.id), "role": "petty_cash", "account_id": one}
+                ).status_code == 200
+    same = post(client, auth, "/slots", {"entity_id": str(minty.id), "role": "bank", "account_id": one})
+    assert (same.status_code, same.json()["error"]) == (400, sentence)
+    assert post(client, auth, "/slots", {"entity_id": str(minty.id), "role": "bank", "account_id": two}
+                ).status_code == 200
+    # and the other way round
+    swap = post(client, auth, "/slots", {"entity_id": str(minty.id), "role": "petty_cash", "account_id": two})
+    assert (swap.status_code, swap.json()["error"]) == (400, sentence)
+
+
+@pytest.mark.django_db
 def test_the_slot_options_list_only_the_right_types(client, auth, minty, templates):
     _answer(client, auth, minty)
     _add(client, auth, minty, code="405", name="Rent", type="expense")

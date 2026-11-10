@@ -462,17 +462,7 @@ def apply_autofill(user_id, entity_id, kind, template_ids) -> tuple[dict, int]:
             if fields:
                 transaction.set_rollback(True)
                 return {"error": next(iter(fields.values())), "fields": fields}, 409
-            added.append(
-                _create(
-                    user_id,
-                    entity,
-                    template.code,
-                    template.name,
-                    template.type,
-                    template.description,
-                    source="template",
-                )
-            )
+            added.append(_from_template(user_id, entity, template))
     logger.info("accounting: entity %s auto-filled %s %s account(s)", entity_id, len(added), kind)
     return {"added": [_row(a) for a in added]}, 200
 
@@ -552,15 +542,21 @@ def _check(entity_id, payload: dict, exclude=None) -> tuple[dict, dict]:
     }, fields
 
 
-def _old_rows(account: AccountInfo, entity: Entity, *, previous_code=None) -> None:
+def _old_rows(
+    account: AccountInfo, entity: Entity, *, previous_code=None, modules=(True, True)
+) -> None:
     """Keep the apps' old readers in step with an expense account (Petty Cash's ticks, Payment
-    Request's bill codes) and give it its module rows."""
+    Request's bill codes) and give it its module rows. ``modules`` = (Petty Cash, Payment Request):
+    both for an account the person adds; a template row's own columns for Auto Fill (the
+    accounting team's sheet, 2026-11-10). A module left out gets its rows inactive, so Settings can
+    turn it on later."""
     if account.account_type not in KINDS["expense"]:
         EntityAccountXero.objects.filter(account_id=account.id).delete()
         return
+    petty, bills = modules
     EntityAccountXero.objects.update_or_create(
         account_id=account.id,
-        defaults={"name": account.name, "type": account.type, "is_active": True},
+        defaults={"name": account.name, "type": account.type, "is_active": petty},
     )
     bill = EntityBillAccountXero.objects.filter(
         entity_id=entity.id,
@@ -575,7 +571,7 @@ def _old_rows(account: AccountInfo, entity: Entity, *, previous_code=None) -> No
             account_name=account.name,
             account_type=account.type,
             xero_account_id="",
-            is_active=True,
+            is_active=bills,
         )
     else:
         bill.account_code, bill.account_name, bill.account_type = (
@@ -584,16 +580,25 @@ def _old_rows(account: AccountInfo, entity: Entity, *, previous_code=None) -> No
             account.type,
         )
         bill.save(update_fields=["account_code", "account_name", "account_type"])
-    for module in ("PETTY_CASH", "PAYMENT_REQUEST"):
+    for module, on in (("PETTY_CASH", petty), ("PAYMENT_REQUEST", bills)):
         AccountModule.objects.get_or_create(
             account_id=account.id,
             module_code=module,
-            defaults={"entity_id": entity.id, "is_active": True},
+            defaults={"entity_id": entity.id, "is_active": on},
         )
 
 
 def _create(
-    user_id, entity, code, name, account_type, description, *, source, is_system=False
+    user_id,
+    entity,
+    code,
+    name,
+    account_type,
+    description,
+    *,
+    source,
+    is_system=False,
+    modules=(True, True),
 ) -> AccountInfo:
     account = AccountInfo.objects.create(
         entity_id=entity.id,
@@ -609,7 +614,7 @@ def _create(
         created_by=user_id,
     )
     if not is_system:
-        _old_rows(account, entity)
+        _old_rows(account, entity, modules=modules)
     return account
 
 
@@ -623,11 +628,21 @@ def _remove(account: AccountInfo) -> None:
     account.delete()
 
 
+#: The float and the bank it is deposited into are two accounts (Petty Cash Settings' rule too).
+SAME_BANK = (
+    "Petty cash and the bank you deposit into can't be the same account. "
+    "Choose a different one for each."
+)
+
+
 def _assign(entity_id, role, account: AccountInfo | None) -> dict:
     column, types = SLOTS[role]
     if account is not None and account.account_type not in types:
         return {"account_id": "That account can't be used for this. Choose one from the list."}
     settings, _ = EntityPettycashSettings.objects.get_or_create(entity_id=entity_id)
+    other = {"petty_cash": "bank", "bank": "petty_cash"}.get(role)
+    if account is not None and other and getattr(settings, SLOTS[other][0]) == account.id:
+        return {"account_id": SAME_BANK}
     setattr(settings, column, account.id if account else None)
     settings.save(update_fields=[column.removesuffix("_id")])
     return {}
@@ -846,6 +861,29 @@ def set_slot(user_id, entity_id, role, account_id) -> tuple[dict, int]:
 # ---- the shared system rows --------------------------------------------------------------------
 
 
+def _from_template(user_id, entity: Entity, template: AccountTemplate, **extra) -> AccountInfo:
+    """A company account from a template row: its modules from the row's Petty Cash / Bill columns,
+    and its daily-closing role (e.g. Cash Sales) chosen when that account is still empty."""
+    account = _create(
+        user_id,
+        entity,
+        template.code,
+        template.name,
+        template.type,
+        template.description,
+        source="template",
+        modules=(bool(template.pettycash_default), bool(template.payment_request_default)),
+        **extra,
+    )
+    role = template.pettycash_role
+    if role in SLOTS:
+        column, _types = SLOTS[role]
+        settings = _settings(entity.id)
+        if settings is None or getattr(settings, column) is None:
+            _assign(entity.id, role, account)
+    return account
+
+
 def _add_shared_rows(user_id, entity: Entity) -> int:
     """Add the template rows every set shares (Petty Cash, Bank, Amount Due to Director), hidden
     when the template marks them system, and choose each for its daily-closing account if empty."""
@@ -860,23 +898,8 @@ def _add_shared_rows(user_id, entity: Entity) -> int:
                 template.name,
             )
             continue
-        account = _create(
-            user_id,
-            entity,
-            template.code,
-            template.name,
-            template.type,
-            template.description,
-            source="template",
-            is_system=bool(template.is_system),
-        )
+        _from_template(user_id, entity, template, is_system=bool(template.is_system))
         added += 1
-        role = template.pettycash_role
-        if role in SLOTS:
-            column, _types = SLOTS[role]
-            settings = _settings(entity.id)
-            if settings is None or getattr(settings, column) is None:
-                _assign(entity.id, role, account)
     return added
 
 

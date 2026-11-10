@@ -352,3 +352,15 @@ def test_the_bill_codes_save_keeps_one_and_a_ticked_default(client, auth, connec
     assert post(client, auth, BILLS, {"entity_id": connected.id, "selected_codes": ["400"],
                                       "default_code": "404"}).json() == {
         "error": "The default account code must be one of the ticked codes."}
+
+
+@pytest.mark.django_db
+def test_a_disconnect_that_kept_the_organisation_is_not_connected(client, auth, connected, xero):
+    """A disconnect keeps the organisation (2026-11-10): the bill codes say so, with no sync asked."""
+    Entity.objects.filter(id=connected.id).update(status="disconnected")
+    read = client.get(BILLS, {"entity_id": connected.id}, **auth)
+    assert (read.status_code, read.json()["connected"]) == (409, False)
+    saved = post(client, auth, BILLS, {"entity_id": connected.id, "selected_codes": ["400"]})
+    assert saved.status_code == 409
+    assert xero.calls == []
+

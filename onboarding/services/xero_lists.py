@@ -63,6 +63,12 @@ CONTACT_FIELDS = (("director", "director_contact_id"), ("cash_sale", "cash_sale_
                   ("discrepancy", "discrepancy_contact_id"))
 
 
+def xero_connected(entity: Entity) -> bool:
+    """Holding an organisation and not disconnected: a disconnect keeps the organisation (2026-11-10).
+    Step 4 (``accounting``) asks the same."""
+    return bool(entity.xero_org_id) and entity.status != "disconnected"
+
+
 def _not_connected(what: str) -> tuple[dict, int]:
     return {"error": f"Connect to Xero first to {what}.", "connected": False}, 409
 
@@ -324,7 +330,7 @@ def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
     if entity is None:
         return NOT_FOUND, 404
     on_its_own = entity.setup_mode == "minty" and not entity.xero_org_id  # its own expense accounts
-    if not entity.xero_org_id and not on_its_own:
+    if not xero_connected(entity) and not on_its_own:
         return _not_connected("load payment account codes")
     rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
     if not rows.exists() and not on_its_own and xero_client.sync(entity_id):  # the connect fills it; the sync mirrors it too
@@ -342,7 +348,7 @@ def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
         else:
             inactive += 1
     codes.sort(key=lambda e: _code_key(e["code"]))
-    return {"connected": bool(entity.xero_org_id), "bill_codes": codes, "selected_codes": selected,
+    return {"connected": xero_connected(entity), "bill_codes": codes, "selected_codes": selected,
             "default_all": not selected and inactive == 0, "default_code": default}, 200
 
 
@@ -354,7 +360,7 @@ def save_bill_codes(user_id, entity_id, selected_codes, default_code=None) -> tu
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         return NOT_FOUND, 404
-    if not entity.xero_org_id and entity.setup_mode != "minty":
+    if not xero_connected(entity) and not (entity.setup_mode == "minty" and not entity.xero_org_id):
         return _not_connected("save payment account codes")
     selected = sorted({str(c).strip() for c in selected_codes if str(c).strip()})
     rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)

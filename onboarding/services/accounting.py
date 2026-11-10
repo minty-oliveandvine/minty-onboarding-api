@@ -45,6 +45,7 @@ from minty_db.models import (
 
 from core import xero_client
 from core.policy import Permission, has_permission_by_user_id
+from onboarding.services.xero_lists import xero_connected
 
 logger = logging.getLogger("minty-onboarding")
 
@@ -161,12 +162,6 @@ def _kind_of(account_type: str | None) -> str | None:
     return next((k for k, types in KINDS.items() if account_type in types), None)
 
 
-def _connected(entity: Entity) -> bool:
-    """Holding an organisation and not disconnected: a disconnect keeps the organisation
-    (2026-11-10), so the org alone is no connection."""
-    return bool(entity.xero_org_id) and entity.status != "disconnected"
-
-
 def _used_ids(entity_id) -> set:
     """The Xero accounts Minty uses (X2, X3): Petty Cash's ``account_module`` rows, and the old
     wizard's expense ticks (``entity_account_xero``) for a company that ticked before X3."""
@@ -260,7 +255,7 @@ def setup(user_id, entity_id) -> tuple[dict, int]:
     )
     return {
         **answers(entity),
-        "connected": _connected(entity),
+        "connected": xero_connected(entity),
         "accounts": lists,
         "slots": slots,
         "slots_ready": sum(1 for s in slots.values() if s["account"]),
@@ -774,7 +769,7 @@ def set_xero_ticks(user_id, entity_id, kind, account_ids) -> tuple[dict, int]:
     entity = _entity(entity_id)
     if entity is None:
         return NOT_FOUND, 404
-    if not _connected(entity):
+    if not xero_connected(entity):
         return NOT_CONNECTED, 409
     noun = "sales" if kind == "sales" else "expense"
     wanted = {str(i) for i in account_ids} if isinstance(account_ids, list) else set()
@@ -818,7 +813,7 @@ def refresh_from_xero(user_id, entity_id) -> tuple[dict, int]:
     entity = _entity(entity_id)
     if entity is None:
         return NOT_FOUND, 404
-    if not _connected(entity):
+    if not xero_connected(entity):
         return NOT_CONNECTED, 409
     if not xero_client.sync(entity_id):
         return {

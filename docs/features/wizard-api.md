@@ -98,21 +98,14 @@ account shares it. Blank means the payer's own address is used instead.
 
 - `GET/POST /sales-methods` — the electronic and delivery methods, **reconciled** to the
   submitted name lists, never delete-and-reinsert (`services/sales_methods.py`; catalogue
-  rows are shared and get-or-created; permission `SALES_METHOD_CREATE`). **Since 2026-11-11 a
-  company with a mode (step 4 asked how Minty works; a Xero org sets `xero`) has step 4's sales
-  categories as its methods (owner: step 5 shows them, one read-only list):** `POST` is 409 "Your
-  sales categories come from Accounting Setup. Change them there.", and `GET` (and `/state`'s
-  `sales_methods`) adds `categories: [{account_id, code, name, method}]` in 4.3's order. Every
-  successful step-4 change (`api_accounting._changed`: business, Auto Fill and its revert, add /
-  edit / remove an account, X2-X3 ticks, Refresh from Xero, the daily-closing accounts) re-links
-  them in the same transaction (`sales_methods.sync_from_accounts`): each `sales`/`revenue`
-  category (other income isn't taken at the till; on Xero only X2's ticks) is the catalogue row of
-  its name, its link (`entity_sale_setting.account_id`, minty-db v0.6) on and in order; a new row
-  is typed `delivery` when its name says so, else `electronic` (Petty Cash's daily closing still
-  groups by type). The cash-sale account is the Cash method's account, never a second method, and
-  Cash stays on or off by the cash answer. A renamed, removed, retyped or unticked category's link,
-  and any older method with no account, is switched off and unlinked - never deleted (report
-  history points at it). A company with no mode keeps today's lists.
+  rows are shared and get-or-created; permission `SALES_METHOD_CREATE`). Free lists with no
+  account link (owner, 2026-11-11: the one-day link to step 4's sales categories is gone, and
+  `entity_sale_setting.account_id` is unused again). Which lists follow the business type
+  (`sales_methods.groups`): `GET` (and `/state`'s `sales_methods`) carries `groups` -
+  `non_cash` for a retail shop, a service or a general business (step 5 shows one Non-cash list,
+  posted as `electronic` with `delivery: []`), `electronic_delivery` for Restaurant & Food and a
+  company onboarding never asked. Petty Cash groups the same way (minty-petty-cash-api's
+  `sales_groups`).
 - `POST /opening-balance` — the starting cash and the date reporting starts, saved as
   `entity_pettycash_settings.opening_balance` / `start_date` (the row is created if Step 6
   has not made it yet; `services/opening_balance.py`). No report is written: Minty's first
@@ -137,7 +130,9 @@ account shares it. Blank means the payer's own address is used instead.
     then resolves each chosen Xero id to its stored row (a choice still missing is 409 naming
     it; Flask kept the old value silently); a key absent keeps its column, an empty one clears
     it; the discrepancy bank mirrors the petty cash bank; the ticked codes are exactly the
-    posted ones, at least one when the company has any.
+    posted ones, at least one when the company has any. With no `expense_codes` key (the Xero
+    path's step 6, 2026-11-11: X3 chose them) only the mapping is saved, the ticks stay as
+    they are and the answer's `expense_codes` is null.
   - `POST /contacts` resolves from the stored contacts, asking the sync once only when one is
     missing. A company banking all its sales (step 4) keeps no cash-sale contact: it is cleared
     whatever is posted (2026-11-11). `POST /contacts/create` makes a supplier in Xero and stores it
@@ -166,14 +161,14 @@ field, 409 for a code or name another active account holds.
 
 | Route | Screen | What |
 |---|---|---|
-| `GET /accounting?entity_id=` | all of step 4 | the answers (`mode`, `business_type`, `uses_sales_cash`, `business_answered`), `accounts.sales`/`accounts.expense` (hidden system accounts left out), the five `slots` with their `options` (right types only), `slots_ready`, `next_code` per type, `types` |
-| `POST /accounting/mode {mode}` | 4.1 | `minty` or `xero` -> `entities.setup_mode`. `minty` is refused (409) while a Xero org is linked; `xero` while the company has its own accounts |
-| `POST /accounting/business {business_type, uses_sales_cash}` | 4.2 | `fnb`/`retail`/`service`/`general`, or null = "None of these"; the cash question is required for every company and "Not sure" arrives as `true`. On the Minty path the template's shared system rows (Petty Cash, Bank, Amount Due to Director) are added then, hidden, and fill their daily-closing accounts. The company's Cash sales method (`entity_sale_setting` for `sale_info.value_name = 'cash_sales'`) follows the answer: `false` ("We bank all sales") turns it off, `true` on (linked if missing); such a company's `GET /accounting` has no `cash_sale` slot (owner's brief, 2026-11-10) |
+| `GET /accounting?entity_id=` | all of step 4 | the answers (`mode`, `business_type`, `uses_sales_cash`, `business_answered`), `accounts.sales`/`accounts.expense` (hidden system accounts left out; each row's `auto_filled` = an Auto Fill row nothing uses yet, what Revert would take out - 2026-11-11: a kept Cash Over / Short made Revert look as if it filled again), the five `slots` with their `options` (right types only), `slots_ready`, `next_code` per type, `types` |
+| `POST /accounting/mode {mode}` | 4.1 | `minty` or `xero` -> `entities.setup_mode`. `minty` is refused (409) while a Xero org is linked. `xero` is free during onboarding (owner, 2026-11-11, no question asked): it removes every account Minty made for the company (`source` template or user, not the hidden system rows - the business type's set, Auto Fill's and the person's own; `_clear_own_chart`) and the daily-closing choices that pointed at them, in one transaction. Refused (409, nothing changed) only when a report expense or bill line already uses one: _This company's reports or bills already use its accounts in Minty, so it keeps using Minty on its own for now. Connect Xero from Settings once setup is finished._ (the hub's matching) |
+| `POST /accounting/business {business_type, uses_sales_cash}` | 4.2 | `fnb`/`retail`/`service`/`general`, or null = "None of these"; the cash question is required for every company and "Not sure" arrives as `true`. On the Minty path the template's shared system rows (Petty Cash, Bank, Amount Due to Director) are added then, hidden, and fill their daily-closing accounts. Since 2026-11-11 (owner: no sales screen) the set's ticked sales accounts are added too (`_sales_from_set`), so Cash Sales fills its daily-closing account; changing the answer removes the old set's unused sales rows (and releases its cash-sale slot) before adding the new set's. The company's Cash sales method (`entity_sale_setting` for `sale_info.value_name = 'cash_sales'`) follows the answer: `false` ("We bank all sales") turns it off, `true` on (linked if missing); such a company's `GET /accounting` has no `cash_sale` slot (owner's brief, 2026-11-10) |
 | `GET /accounting/autofill?kind=` / `POST {kind, template_ids}` / `POST /accounting/autofill/revert {kind}` | 4.3, 4.4 | the company's template set for `sales` or `expense` (its business type, or General for "None of these"; its cash answer; its country or every country), ticked where the template says; adding skips a row already there and refuses one whose code or name is taken; each added account shows in the modules its row ticks (`pettycash_default` / `payment_request_default` -> `account_module` and the old `entity_account_xero` / `entity_bill_account_xero` rows, inactive where unticked), and a row with a `pettycash_role` (e.g. Cash Sales) fills that daily-closing account when it is still empty (2026-11-10, the accounting team's sheet); an account the person adds is in both modules; Revert removes the Auto Fill rows nothing uses. The templates are Minty's `docs/schema/seed_account_templates.sql` |
 | `POST /accounting/accounts {code, name, type, description?, role?}` / `PATCH /accounting/accounts/{id}` / `DELETE /accounting/accounts/{id}` | 4.3b, 4.4a, 4.5a | one account: code (letters, numbers, dots, dashes; up to 10; a bank account may have none), name (up to 80 until CONTRACT widens it), type; `role` also chooses it for that daily-closing account. An account from Xero is changed in Xero (409). Removing deletes an unused account and archives a used one; a system account can't be removed |
-| `POST /accounting/xero-accounts {kind, account_ids}` | X2, X3 (Xero path, 2026-11-10) | Exactly these of the synced Xero `sales`/`expense` accounts are Minty's: Petty Cash's `account_module` rows (`is_active`), and for expenses `entity_account_xero.is_active` too (`xero_lists._tick_codes`, the apps' old reader). 400 for none ticked ("Tick at least one sales account to continue."), a row of the wrong kind, a Minty-made or another company's row; 409 when not connected (a kept org after a disconnect is not). Answers the whole step (`GET /accounting`), whose rows now carry `used` |
+| `POST /accounting/xero-accounts {kind, account_ids}` | X3 (Xero path, 2026-11-10; X2's sales screen removed 2026-11-11, the route still takes `sales`) | Exactly these of the synced Xero `sales`/`expense` accounts are Minty's: Petty Cash's `account_module` rows (`is_active`), and for expenses `entity_account_xero.is_active` too (`xero_lists._tick_codes`, the apps' old reader). 400 for none ticked ("Tick at least one sales account to continue."), a row of the wrong kind, a Minty-made or another company's row; 409 when not connected (a kept org after a disconnect is not). Answers the whole step (`GET /accounting`), whose rows now carry `used` |
 | `POST /accounting/xero-refresh` | Refresh from Xero (X2-X4) | accounts-api's one sync (`core/xero_client.sync`), then the whole step again; 502 _Xero didn't send your accounts just now. Try Refresh again in a moment._; 409 when not connected |
-| `POST /accounting/slots {role, account_id \| null}` | 4.5 | `petty_cash`, `bank`, `cash_sale`, `discrepancy`, `director` -> `entity_pettycash_settings`; an account of the wrong type is refused, and petty cash and the bank can't be one account. Petty cash also fills `discrepancy_bank_account_id` (as the old step 6 did; Petty Cash and finalize read it). Missing ones only warn: Petty Cash asks again before the first closing |
+| `POST /accounting/slots {role, account_id \| null}` | (4.5, removed from the wizard 2026-11-11; kept for the route's callers) | `petty_cash`, `bank`, `cash_sale`, `discrepancy`, `director` -> `entity_pettycash_settings`; an account of the wrong type is refused, and petty cash and the bank can't be one account. Petty cash also fills `discrepancy_bank_account_id` (as the old step 6 did; Petty Cash and finalize read it). Missing ones only warn: Petty Cash asks again before the first closing |
 
 Expense accounts show under two headings from their type (`group`: `direct_costs` =
 `cost_of_sales`, "Cost of what you sell"; `expense`/`overheads` = `running_costs`), never a stored
@@ -246,8 +241,9 @@ not `scope`).
 `entity_for_member` (400/403/404). First the setup rule (`setup_gaps`, from
 `entity_setup_summary`, only when a module is on): a company keeping its books in Minty on its
 own (Accounting Setup, above) needs only its business answers; otherwise Petty Cash needs Xero
-plus daily closing's accounts as step 4 lists them (four for a company banking all its sales, else
-five; the discrepancy bank follows petty cash) -> step 4, and the director, discrepancy and (with
+plus daily closing's accounts (four for a company banking all its sales, else five; the
+discrepancy bank follows petty cash) -> step 6, Account Code (2026-11-11: step 4 no longer maps
+them), and the director, discrepancy and (with
 cash sales only) cash-sale contacts -> step 7, read from `entity_pettycash_settings` (2026-11-11); Payment Request needs Xero plus at least one ticked bill account code, and
 a default code (if set) that is ticked - that one read from `entity_bill_account_xero`
 (`EntityBillAccountXero`), since the view has no column for it. Anything missing is a 409 `{"error", "missing": [{"step",
@@ -273,3 +269,8 @@ registered; 30 ported, 17 proxied, 47 in all, 2026-11-10), `test_me_proxies.py` 
 and `test_schema_name.py` (the schema), `test_settings_guard.py`; 399 passed + 1 skipped on
 2026-10-06 (SQLite and Postgres) against Minty's `01_schema_rebased.sql` (`MINTY_REPO`). End to end:
 `minty-onboarding-web/e2e` (`stack`, `resume`, `xero`, `walk`).
+
+**Connecting Xero later (Settings Phase 2, 2026-11-11).** `accounting.minty_on_its_own` is
+`setup_mode = 'minty'` alone - an organisation recorded while minty-accounts-api matches the
+company's accounts leaves it Minty's until matching's Finish sets `'xero'`. Finalize never marks such
+a company `connected` (only matching does, once its accounts and suppliers are in Xero).

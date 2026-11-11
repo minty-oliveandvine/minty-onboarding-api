@@ -259,3 +259,18 @@ def test_both_modules_need_both_setups(client, auth, entity, enable_module, monk
 
     _bill_code(entity, "400")
     assert _finalize(client, auth, entity.id).status_code == 200
+
+
+@requires_postgres
+def test_a_company_still_matching_its_accounts_goes_live_disconnected(
+    client, auth, entity, monkeypatch
+):
+    """A Minty company that signed in to Xero mid-way (Settings Phase 2, 2026-11-11) records an org
+    before its accounts are matched: finalize must not call it connected - only matching's Finish
+    does, once its accounts and suppliers are in Xero."""
+    Entity.objects.filter(id=entity.id).update(setup_mode="minty", xero_org_id="org-1", uses_sales_cash=True)
+    _trials_ok(monkeypatch)
+    assert _finalize(client, auth, entity.id).status_code == 200
+    entity.refresh_from_db()
+    assert entity.status == "disconnected"
+

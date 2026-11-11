@@ -379,3 +379,22 @@ def test_a_disconnect_that_kept_the_organisation_is_not_connected(client, auth, 
     assert saved.status_code == 409
     assert xero.calls == []
 
+
+
+@pytest.mark.django_db
+def test_a_mapping_only_save_leaves_the_expense_ticks(client, auth, connected, xero):
+    """Step 6 on the Xero path (owner, 2026-11-11): only the five daily-closing accounts - X3 chose
+    the expense accounts, so a save with no ``expense_codes`` leaves the ticks alone."""
+    bank, deposit, adv, fees = stored(connected, "a-bank1", "a-bank2", "a-adv", "a-fees")
+    EntityAccountXero.objects.create(account_id=adv.id, name="Advertising", type="EXPENSE", is_active=True)
+    EntityAccountXero.objects.create(account_id=fees.id, name="Bank Fees", type="EXPENSE", is_active=False)
+
+    resp = post(client, auth, CODES, {"entity_id": connected.id,
+                                      "mapping": {"pettycash": "a-bank1", "deposit": "a-bank2"}})
+
+    assert resp.status_code == 200, resp.content
+    row = EntityPettycashSettings.objects.get(entity_id=connected.id)
+    assert (row.pettycash_account_id, row.bank_account_id) == (bank.id, deposit.id)
+    ticks = dict(EntityAccountXero.objects.filter(account__entity_id=connected.id)
+                 .values_list("account__xero_code", "is_active"))
+    assert ticks == {"400": True, "404": False}

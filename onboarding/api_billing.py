@@ -153,7 +153,9 @@ def setup_gaps(entity) -> list[dict]:
         if accounts < len(roles):
             gaps.append(
                 {
-                    "step": 4,
+                    # Petty Cash Settings' Account Code (step 6) chooses them on the Xero path again
+                    # (owner, 2026-11-11: Accounting Setup has no daily-closing screen).
+                    "step": 6,
                     "message": f"Choose the accounts daily closing needs ({accounts} of {len(roles)} set).",
                 }
             )
@@ -214,7 +216,10 @@ def post_finalize(request, payload: dict = Body(default={})):
         )
 
     if entity.status == EntityStatus.ONBOARDING:
-        entity.status = EntityStatus.CONNECTED if entity.xero_org_id else EntityStatus.DISCONNECTED
+        # A Minty company whose accounts are still being matched has an org but isn't connected:
+        # only matching's Finish connects it (Settings Phase 2, 2026-11-11).
+        xero_live = bool(entity.xero_org_id) and entity.setup_mode != "minty"
+        entity.status = EntityStatus.CONNECTED if xero_live else EntityStatus.DISCONNECTED
         entity.save(update_fields=["status"])
         logger.info("onboarding: entity %s finalized (%s)", entity.id, entity.status)
 

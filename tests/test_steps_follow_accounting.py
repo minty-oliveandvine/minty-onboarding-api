@@ -278,7 +278,7 @@ def test_a_xero_company_banking_all_sales_needs_four_accounts_and_two_contacts(x
     enable_module(entity, "PETTY_CASH")
     _slots(entity, ["petty_cash", "bank", "discrepancy"])
     gaps = setup_gaps(entity)
-    assert {"step": 4, "message": "Choose the accounts daily closing needs (3 of 4 set)."} in gaps
+    assert {"step": 6, "message": "Choose the accounts daily closing needs (3 of 4 set)."} in gaps
     assert any(g["step"] == 7 for g in gaps)
 
     _slots(entity, ["petty_cash", "bank", "discrepancy", "director"])
@@ -298,5 +298,5 @@ def test_a_xero_company_with_cash_sales_also_needs_the_cash_sale_account_and_con
     _slots(entity, ["petty_cash", "bank", "discrepancy", "director"])
     _contacts(entity, ["director", "discrepancy"])
     gaps = setup_gaps(entity)
-    assert {"step": 4, "message": "Choose the accounts daily closing needs (4 of 5 set)."} in gaps
+    assert {"step": 6, "message": "Choose the accounts daily closing needs (4 of 5 set)."} in gaps
     assert {"step": 7, "message": "Choose the petty cash contacts (2 of 3 set)."} in gaps

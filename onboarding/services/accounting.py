@@ -174,6 +174,24 @@ def _used_ids(entity_id) -> set:
     return set(modules) | set(old)
 
 
+def _held(entity_id, ids) -> set:
+    """Of ``ids``, the accounts something uses (``_used``'s rule, three queries for the lot)."""
+    ids = list(ids)
+    if not ids:
+        return set()
+    held = set(
+        ReportExpense.objects.filter(account_id__in=ids).values_list("account_id", flat=True)
+    )
+    held |= set(BillLine.objects.filter(account_id__in=ids).values_list("account_id", flat=True))
+    settings = (
+        EntityPettycashSettings.objects.filter(entity_id=entity_id)
+        .values(*SETTINGS_COLUMNS)
+        .first()
+    )
+    held |= {v for v in (settings or {}).values() if v in set(ids)}
+    return held
+
+
 def _row(account: AccountInfo, used: bool = True) -> dict:
     return {
         # A row the company made in Minty is in use by being there; a Xero row once it is ticked.
@@ -232,9 +250,14 @@ def setup(user_id, entity_id) -> tuple[dict, int]:
         return NOT_FOUND, 404
     accounts = list(_active(entity_id).order_by("code", "name"))
     used = _used_ids(entity_id)
+    held = _held(entity_id, (a.id for a in accounts if a.source == "template"))
     lists = {
         kind: [
-            _row(a, used=not a.xero_account_id or a.id in used)
+            {
+                **_row(a, used=not a.xero_account_id or a.id in used),
+                # what Revert would take out: an Auto Fill row nothing uses yet
+                "auto_filled": a.source == "template" and a.id not in held,
+            }
             for a in accounts
             if a.account_type in types and not a.is_system
         ]
@@ -283,19 +306,53 @@ def set_mode(user_id, entity_id, mode) -> tuple[dict, int]:
         return {
             "error": "This company is connected to Xero. Disconnect Xero first to use Minty on its own."
         }, 409
-    if (
-        mode == "xero"
-        and _active(entity_id).filter(source__in=MINTY_MADE, is_system=False).exists()
-    ):
-        return {
-            "error": "This company has its own accounts in Minty. Remove them to connect Xero, "
-            "or keep using Minty on its own."
-        }, 409
-    if entity.setup_mode != mode:
-        entity.setup_mode = mode
-        entity.save(update_fields=["setup_mode"])
-        logger.info("accounting: entity %s set up with %s", entity_id, mode)
+    with transaction.atomic():
+        if mode == "xero" and entity.setup_mode != "xero":
+            refused = _clear_own_chart(entity_id)
+            if refused:
+                return {"error": refused}, 409
+        if entity.setup_mode != mode:
+            entity.setup_mode = mode
+            entity.save(update_fields=["setup_mode"])
+            logger.info("accounting: entity %s set up with %s", entity_id, mode)
     return answers(entity), 200
+
+
+#: Switching to Xero once Minty's accounts carry reports or bills (they are never deleted).
+IN_USE_BY_RECORDS = (
+    "This company's reports or bills already use its accounts in Minty, so it keeps using Minty "
+    "on its own for now. Connect Xero from Settings once setup is finished."
+)
+
+
+def _clear_own_chart(entity_id) -> str | None:
+    """Onboarding's choice is free (owner, 2026-11-11): choosing Xero takes away the accounts Minty
+    made for the company - the business type's set, Auto Fill's and the person's own - and the
+    daily-closing choices that pointed at them, with no question asked. The hidden system rows
+    stay. A company whose reports or bills already use one of them keeps everything and is told
+    why (the sentence; None when cleared)."""
+    own = list(
+        AccountInfo.objects.filter(entity_id=entity_id, source__in=MINTY_MADE, is_system=False)
+    )
+    if not own:
+        return None
+    ids = [a.id for a in own]
+    if (
+        ReportExpense.objects.filter(account_id__in=ids).exists()
+        or BillLine.objects.filter(account_id__in=ids).exists()
+    ):
+        return IN_USE_BY_RECORDS
+    settings = _settings(entity_id)
+    if settings is not None:
+        cleared = [c for c in SETTINGS_COLUMNS if getattr(settings, c) in set(ids)]
+        for column in cleared:
+            setattr(settings, column, None)
+        if cleared:
+            settings.save(update_fields=cleared)
+    for account in own:
+        _remove(account)
+    logger.info("accounting: entity %s chose Xero; %s Minty accounts removed", entity_id, len(own))
+    return None
 
 
 def _cash_method(entity_id, on: bool) -> None:
@@ -344,6 +401,8 @@ def set_business(user_id, entity_id, business_type, uses_sales_cash) -> tuple[di
         entity.save(update_fields=["business_type", "uses_sales_cash"])
         _cash_method(entity.id, uses_sales_cash)
         added = _add_shared_rows(user_id, entity) if entity.setup_mode == "minty" else 0
+        if entity.setup_mode == "minty":
+            added += _sales_from_set(user_id, entity)
     logger.info(
         "accounting: entity %s answered business=%s cash=%s (%s system accounts added)",
         entity_id,
@@ -467,13 +526,16 @@ def apply_autofill(user_id, entity_id, kind, template_ids) -> tuple[dict, int]:
     return {"added": [_row(a) for a in added]}, 200
 
 
+#: ``entity_pettycash_settings``' account columns: daily closing's five and the discrepancy bank.
+SETTINGS_COLUMNS = [c for c, _t in SLOTS.values()] + ["discrepancy_bank_account_id"]
+
+
 def _used(account_id) -> bool:
-    settings_columns = [c for c, _t in SLOTS.values()] + ["discrepancy_bank_account_id"]
     return (
         ReportExpense.objects.filter(account_id=account_id).exists()
         or BillLine.objects.filter(account_id=account_id).exists()
         or EntityPettycashSettings.objects.filter(
-            Q(**{settings_columns[0]: account_id})
+            Q(**{SETTINGS_COLUMNS[0]: account_id})
             | Q(bank_account_id=account_id)
             | Q(cash_sale_account_id=account_id)
             | Q(discrepancy_account_id=account_id)
@@ -890,6 +952,35 @@ def _from_template(user_id, entity: Entity, template: AccountTemplate, **extra) 
     return account
 
 
+def _sales_from_set(user_id, entity: Entity) -> int:
+    """The business type's sales accounts (owner, 2026-11-11: Accounting Setup has no sales screen
+    any more): the set's ticked sales rows are added, and a Cash Sales row fills daily closing's
+    cash-sale account. A changed answer swaps the set - template sales rows nothing uses go first;
+    "We bank all sales" clears the cash-sale account so its row can go too."""
+    settings = _settings(entity.id)
+    set_cash_sale = settings is not None and _active(entity.id).filter(
+        id=settings.cash_sale_account_id, source="template").exists()
+    if entity.uses_sales_cash is False or set_cash_sale:
+        # The set chose that cash-sale account: the new answer chooses again (a person's own stays).
+        _assign(entity.id, "cash_sale", None)
+    for account in _active(entity.id).filter(source="template", is_system=False,
+                                             account_type__in=KINDS["sales"]):
+        if not _used(account.id):
+            _remove(account)
+    added = 0
+    for template in _templates(entity):
+        if template.business_type is None or template.type not in KINDS["sales"]:
+            continue
+        if not template.ticked_by_default or _present(entity.id, template):
+            continue
+        if _clash(entity.id, template.code, template.name):
+            logger.warning("accounting: entity %s keeps its own %r over the set's", entity.id, template.name)
+            continue
+        _from_template(user_id, entity, template)
+        added += 1
+    return added
+
+
 def _add_shared_rows(user_id, entity: Entity) -> int:
     """Add the template rows every set shares (Petty Cash, Bank, Amount Due to Director), hidden
     when the template marks them system, and choose each for its daily-closing account if empty."""
@@ -920,5 +1011,6 @@ def payment_accounts(entity: Entity) -> list[AccountInfo]:
 
 
 def minty_on_its_own(entity: Entity) -> bool:
-    """The company chose to keep its books in Minty without Xero (4.1) and has no Xero org."""
-    return entity.setup_mode == "minty" and not entity.xero_org_id
+    """The company chose to keep its books in Minty (4.1). An organisation recorded mid-matching
+    (Settings Phase 2, 2026-11-11) leaves it Minty's until matching's Finish sets ``'xero'``."""
+    return entity.setup_mode == "minty"

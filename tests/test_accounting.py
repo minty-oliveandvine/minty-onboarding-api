@@ -8,6 +8,7 @@ an expense account.
 """
 
 import uuid
+from datetime import date
 
 import pytest
 from minty_db.models import (
@@ -18,6 +19,8 @@ from minty_db.models import (
     EntityAccountXero,
     EntityBillAccountXero,
     EntityPettycashSettings,
+    Report,
+    ReportExpense,
     User,
     UserEntity,
 )
@@ -120,10 +123,64 @@ def test_a_connected_company_cannot_switch_to_minty_on_its_own(client, auth, ent
 
 
 @pytest.mark.django_db
-def test_xero_is_refused_once_the_company_has_its_own_accounts(client, auth, minty):
-    assert _add(client, auth, minty, code="400", name="Rent", type="expense").status_code == 201
+def test_switching_to_xero_clears_the_accounts_minty_set_up(client, auth, minty, templates):
+    """Onboarding's choice is free (owner, 2026-11-11): Xero takes the place of Minty's own chart, so
+    every account Minty made - the business type's set, Auto Fill's and the person's own - goes,
+    with the daily-closing choices that pointed at them. The system rows stay, unseen."""
+    _answer(client, auth, minty)
+    ids = [str(templates["Cleaning"].id)]
+    post(
+        client,
+        auth,
+        "/autofill",
+        {"entity_id": str(minty.id), "kind": "expense", "template_ids": ids},
+    )
+    rent = _add(client, auth, minty, code="499", name="Sundries", type="expense").json()["account"]
+    EntityPettycashSettings.objects.filter(entity_id=minty.id).update(
+        discrepancy_account_id=rent["id"]
+    )
+    system = set(
+        AccountInfo.objects.filter(entity_id=minty.id, is_system=True).values_list("id", flat=True)
+    )
+
     resp = post(client, auth, "/mode", {"entity_id": str(minty.id), "mode": "xero"})
-    assert resp.status_code == 409 and "Remove them to connect Xero" in resp.json()["error"]
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["mode"] == "xero"
+    left = AccountInfo.objects.filter(entity_id=minty.id)
+    assert set(left.values_list("id", flat=True)) == system
+    assert EntityPettycashSettings.objects.get(entity_id=minty.id).discrepancy_account_id is None
+    assert (
+        not AccountModule.objects.filter(entity_id=minty.id).exclude(account_id__in=system).exists()
+    )
+
+
+@pytest.mark.django_db
+def test_xero_is_refused_once_a_report_uses_minty_s_accounts(client, auth, minty):
+    """Nothing a report or bill already points at is deleted: that company stays on Minty here and
+    connects Xero from Settings, where its accounts are matched."""
+    rent = _add(client, auth, minty, code="499", name="Sundries", type="expense").json()["account"]
+    report = Report.objects.create(
+        id=str(uuid.uuid4()),
+        entity_id=minty.id,
+        status="draft",
+        transaction_date=date.today(),
+        opening_balance=0.0,
+        cash_addition=0.0,
+    )
+    ReportExpense.objects.create(
+        report_id=report.id, item="Sundries", amount=5, account_id=rent["id"]
+    )
+
+    resp = post(client, auth, "/mode", {"entity_id": str(minty.id), "mode": "xero"})
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] == (
+        "This company's reports or bills already use its accounts in Minty, so it keeps using Minty "
+        "on its own for now. Connect Xero from Settings once setup is finished."
+    )
+    assert AccountInfo.objects.filter(id=rent["id"]).exists()
+    assert Entity.objects.get(id=minty.id).setup_mode == "minty"
 
 
 # ---- 4.2: the business answers ---------------------------------------------------------------------
@@ -144,21 +201,24 @@ def test_answering_adds_the_shared_system_accounts_hidden_and_chosen(
 ):
     resp = _answer(client, auth, minty)
     assert resp.status_code == 200 and resp.json()["business_answered"] is True
-    system = AccountInfo.objects.filter(entity_id=minty.id)
+    system = AccountInfo.objects.filter(entity_id=minty.id, is_system=True)
     assert sorted(system.values_list("code", flat=True)) == ["090", "091", "800"]
     assert all(a.is_system and a.source == "template" and a.xero_account_id is None for a in system)
     settings = EntityPettycashSettings.objects.get(entity_id=minty.id)
     assert settings.pettycash_account.code == "090" and settings.bank_account.code == "091"
     assert settings.director_account.code == "800"
     body = _setup(client, auth, minty)
-    assert body["accounts"] == {"sales": [], "expense": []}, "the lists start empty"
+    # the set's sales accounts come with the answer (owner, 2026-11-11: no sales screen); the expense
+    # list starts empty for 4.4's Auto Fill
+    assert [a["name"] for a in body["accounts"]["sales"]] == ["Food sales"]
+    assert body["accounts"]["expense"] == []
     assert body["slots"]["petty_cash"]["account"]["name"] == "Petty Cash"
     assert body["slots_ready"] == 3
     assert not EntityAccountXero.objects.filter(account__entity_id=minty.id).exists(), (
         "hidden: no Petty Cash tick"
     )
     _answer(client, auth, minty)
-    assert AccountInfo.objects.filter(entity_id=minty.id).count() == 3, (
+    assert AccountInfo.objects.filter(entity_id=minty.id).count() == 4, (
         "answering again adds nothing"
     )
 
@@ -241,6 +301,29 @@ def test_auto_fill_adds_the_chosen_rows_and_revert_takes_them_out(client, auth, 
     ]
     assert not AccountInfo.objects.filter(entity_id=minty.id, code="420").exists()
     assert not EntityBillAccountXero.objects.filter(entity_id=minty.id, account_code="420").exists()
+
+    # What stays is no longer Auto Fill's to take out: the screen reads `auto_filled` (2026-11-11,
+    # the owner: a kept Cash Over / Short made Revert look as if it filled the list again)
+    rows = {r["name"]: r for r in _setup(client, auth, minty)["accounts"]["expense"]}
+    assert rows["Food and drink costs"]["source"] == "template"
+    assert rows["Food and drink costs"]["auto_filled"] is False
+
+
+@pytest.mark.django_db
+def test_an_auto_fill_row_nothing_uses_is_marked_auto_filled(client, auth, minty, templates):
+    _answer(client, auth, minty)
+    ids = [str(templates["Cleaning"].id)]
+    post(
+        client,
+        auth,
+        "/autofill",
+        {"entity_id": str(minty.id), "kind": "expense", "template_ids": ids},
+    )
+    _add(client, auth, minty, code="499", name="Sundries", type="expense")
+
+    rows = {r["name"]: r for r in _setup(client, auth, minty)["accounts"]["expense"]}
+    assert rows["Cleaning"]["auto_filled"] is True
+    assert rows["Sundries"]["auto_filled"] is False
 
 
 @pytest.mark.django_db
@@ -664,9 +747,13 @@ def test_a_xero_company_without_xero_still_cannot_load_bill_codes(client, auth, 
 
 
 @pytest.mark.django_db
-def test_minty_on_its_own_needs_no_org(minty):
+def test_minty_on_its_own_until_its_accounts_are_matched(minty):
+    """An org recorded mid-matching (Settings Phase 2, 2026-11-11) leaves the company Minty's; Finish
+    sets setup_mode 'xero'."""
     assert accounting.minty_on_its_own(minty)
     minty.xero_org_id = "ORG-1"
+    assert accounting.minty_on_its_own(minty)
+    minty.setup_mode = "xero"
     assert not accounting.minty_on_its_own(minty)
 
 

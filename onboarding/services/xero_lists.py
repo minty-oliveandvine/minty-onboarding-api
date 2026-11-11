@@ -224,11 +224,14 @@ def _tick_codes(entity: Entity, codes) -> None:
 def save_account_codes(user_id, entity_id, expense_codes, mapping) -> tuple[dict, int]:
     if not has_permission_by_user_id(user_id, Permission.COA_UPDATE, entity_id):
         return DENIED, 403
-    if not isinstance(expense_codes, list):
+    # No ``expense_codes`` at all = the five accounts only (step 6 on the Xero path, 2026-11-11: X3
+    # chose the expense accounts), so the ticks are left as they are.
+    ticks = expense_codes is not None
+    if ticks and not isinstance(expense_codes, list):
         return {"error": "expense_codes must be an array"}, 400
     has_codes = AccountInfo.objects.filter(entity_id=entity_id, type__in=COA_INCLUDED_TYPES).exclude(
         xero_code__isnull=True).exclude(xero_code="").exists()
-    if not any(str(c).strip() for c in expense_codes if c) and has_codes:
+    if ticks and not any(str(c).strip() for c in expense_codes if c) and has_codes:
         return {"error": "Pick at least one account code."}, 400
     mapping = mapping if isinstance(mapping, dict) else {}
     petty, deposit = (mapping.get("pettycash") or "").strip(), (mapping.get("deposit") or "").strip()
@@ -263,9 +266,11 @@ def save_account_codes(user_id, entity_id, expense_codes, mapping) -> tuple[dict
         elif "pettycash" in mapping and not petty:
             row.discrepancy_bank_account_id = None
         row.save()
-        _tick_codes(entity, expense_codes)
-    logger.info("save_account_codes: entity=%s codes=%s set=%s", entity_id, len(expense_codes), sorted(wanted))
-    return {"ok": True, "expense_codes": expense_codes}, 200
+        if ticks:
+            _tick_codes(entity, expense_codes)
+    logger.info("save_account_codes: entity=%s codes=%s set=%s", entity_id,
+                len(expense_codes) if ticks else "kept", sorted(wanted))
+    return {"ok": True, "expense_codes": expense_codes if ticks else None}, 200
 
 
 # ---- step 6: the contacts ---------------------------------------------------------------------

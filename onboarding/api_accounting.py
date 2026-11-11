@@ -7,11 +7,10 @@ whole step (``GET /accounting``); each change answers what the screen needs to r
 
 from django.db import transaction
 from django.http import JsonResponse
-from minty_db.models import Entity
 from ninja import Body, Router
 
 from core.permissions import entity_for_member, require_entity_id
-from onboarding.services import accounting, sales_methods
+from onboarding.services import accounting
 
 accounting_router = Router()
 
@@ -22,12 +21,10 @@ def _answer(result: tuple[dict, int]) -> JsonResponse:
 
 
 def _changed(entity_id, change) -> JsonResponse:
-    """Run a step-4 change and, when it succeeds, re-link the sales methods to the sales categories
-    (owner, 2026-11-11: step 5 shows step 4's) - one transaction, so they never disagree."""
+    """Run a step-4 change in one transaction. (Until 2026-11-11 it also re-linked the sales methods
+    to the sales categories; step 5's methods are free lists again, owner.)"""
     with transaction.atomic():
         body, status = change()
-        if status < 300:
-            sales_methods.sync_from_accounts(Entity.objects.get(id=entity_id))
     return JsonResponse(body, status=status)
 
 

@@ -114,24 +114,22 @@ def test_the_wizard_leaves_the_companys_rows_on_the_schema(
     assert state_of(client, auth, entity_id)["current_step"] == step_defs.STEP_SALES
 
     # ---- step 5: sales methods -------------------------------------------------------------
-    # A Xero org sets the mode ('xero'), so step 5's methods are step 4's sales categories
-    # (2026-11-11): its own list is refused, and the company keeps only Cash until X2 ticks some.
     resp = post_json(
         client,
         auth,
         SALES,
         {"entity_id": entity_id, "electronic": ["Visa", "Octopus"], "delivery": ["Foodpanda"]},
     )
-    assert resp.status_code == 409, resp.content
+    assert resp.status_code == 200, resp.content
     active = {
         s.sale.sale_name
         for s in EntitySaleSetting.objects.filter(
             entity_id=entity_id, is_active=True
         ).select_related("sale")
     }
-    assert active == {"Cash"}
+    assert {"Visa", "Octopus", "Foodpanda", "Cash"} <= active
     body = state_of(client, auth, entity_id)
-    assert body["sales_methods"]["categories"] == []
+    assert "Octopus" in body["sales_methods"]["electronic"]  # the POST body shape: names per type
 
     # ---- step 6: account codes (Flask writes the settings; the row points at account_info) ---
     account = AccountInfo.objects.create(

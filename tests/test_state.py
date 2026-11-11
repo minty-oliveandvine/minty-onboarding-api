@@ -479,7 +479,7 @@ def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entit
     assert state_of(client, auth, entity)["sales_methods"] == {
         "electronic": [],
         "delivery": [],
-        "categories": [],
+        "groups": "electronic_delivery",
     }
 
 

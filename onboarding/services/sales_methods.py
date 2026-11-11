@@ -25,20 +25,17 @@ already typed is simply linked. Types are the ``sale_type`` enum: ``electronic``
 """
 
 import logging
-import re
 import uuid
 
 from django.db import transaction
 from minty_db.enums import SaleType
 from minty_db.models import (
-    AccountInfo,
     Entity,
-    EntityPettycashSettings,
     EntitySaleSetting,
     SaleInfo,
 )
 
-from core.exceptions import AccessDeniedError, ConflictError, OnboardingValidationError
+from core.exceptions import AccessDeniedError, OnboardingValidationError
 from core.policy import Permission, has_permission_by_user_id
 
 logger = logging.getLogger("minty-onboarding")
@@ -50,10 +47,16 @@ logger = logging.getLogger("minty-onboarding")
 MANAGED_TYPES = (SaleType.ELECTRONIC, SaleType.DELIVERY)
 CASH_VALUE_NAME = "cash_sales"
 CASH_IS_STEP_4 = "Cash is set by your answer in Accounting Setup."
-FROM_STEP_4 = "Your sales categories come from Accounting Setup. Change them there."
-#: Sales categories that are sales methods: other income (interest and the like) isn't taken at the till.
-CATEGORY_TYPES = ("sales", "revenue")
-SALE_NAME_MAX = 80
+#: Which lists step 5 shows (owner, 2026-11-11): Restaurant & Food takes Electronic and Delivery; a
+#: retail shop, a service or a general business takes one Non-cash list, stored as electronic (Petty
+#: Cash shows electronic, delivery and Cash). A company from before the question (no type) keeps both.
+NON_CASH_BUSINESSES = ("retail", "service", "general")
+
+
+def groups(entity_id) -> str:
+    """``non_cash`` or ``electronic_delivery`` - the lists step 5 and Petty Cash show."""
+    business = Entity.objects.filter(id=entity_id).values_list("business_type", flat=True).first()
+    return "non_cash" if business in NON_CASH_BUSINESSES else "electronic_delivery"
 
 
 def _clean(names) -> list[str]:
@@ -126,7 +129,7 @@ def grouped_methods(entity_id: str) -> dict:
     return {
         "electronic": [name for typ, name in rows if typ == SaleType.ELECTRONIC],
         "delivery": [name for typ, name in rows if typ == SaleType.DELIVERY],
-        "categories": categories(entity_id),
+        "groups": groups(entity_id),
     }
 
 
@@ -148,10 +151,6 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
         raise AccessDeniedError("Access denied")
     if not isinstance(electronic, list) or not isinstance(delivery, list):
         raise OnboardingValidationError("electronic and delivery must be arrays")
-    entity = Entity.objects.filter(id=entity_id).first()
-    if entity is not None and entity.setup_mode:
-        # Step 5 shows step 4's sales categories (owner, 2026-11-11): they change there.
-        raise ConflictError(FROM_STEP_4)
 
     desired = {SaleType.ELECTRONIC: _clean(electronic), SaleType.DELIVERY: _clean(delivery)}
     for names in desired.values():
@@ -191,88 +190,3 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
         len(desired[SaleType.DELIVERY]),
     )
     return {"electronic": desired[SaleType.ELECTRONIC], "delivery": desired[SaleType.DELIVERY]}
-
-
-# ---- step 5 = step 4's sales categories (owner, 2026-11-11) -------------------------------------
-#
-# A company that chose how Minty keeps its books (step 4) has one sales method per sales category:
-# each linked to its account by ``entity_sale_setting.account_id`` (minty-db v0.6). Every step-4
-# change re-links them here (``api_accounting`` calls it after each change, in its transaction).
-
-
-def _method_type(name: str) -> str:
-    """A new catalogue row's type, by 4.3's glyph rule. Petty Cash's daily closing still groups (and
-    shows) only electronic and delivery methods, so a category is always one of the two."""
-    return SaleType.DELIVERY if re.search(r"deliver", name, re.IGNORECASE) else SaleType.ELECTRONIC
-
-
-def _category_accounts(entity: Entity) -> list[AccountInfo]:
-    """Step 4's sales categories in 4.3's order: a Minty company's own; on Xero, X2's ticks."""
-    from onboarding.services import accounting
-
-    rows = list(
-        accounting._active(entity.id)
-        .filter(account_type__in=CATEGORY_TYPES, is_system=False)
-        .order_by("code", "name")
-    )
-    if accounting.minty_on_its_own(entity):
-        return rows
-    used = accounting._used_ids(entity.id)
-    return [a for a in rows if a.xero_account_id and a.id in used]
-
-
-def sync_from_accounts(entity: Entity) -> None:
-    """Re-link the company's sales methods to step 4's sales categories. Links are switched off and
-    unlinked, never deleted (``report_sale`` keeps pointing at them). A company with no mode keeps
-    step 5's own list."""
-    if not entity.setup_mode:
-        return
-    settings = EntityPettycashSettings.objects.filter(entity_id=entity.id).first()
-    cash_account = settings.cash_sale_account_id if settings else None
-    wanted: dict = {}  # catalogue row id -> (account, place)
-    for place, account in enumerate((a for a in _category_accounts(entity) if a.id != cash_account), start=1):
-        name = (account.name or "").strip()[:SALE_NAME_MAX]
-        catalog = ensure_catalog_row(name, _method_type(name))
-        if catalog.value_name == CASH_VALUE_NAME:
-            continue  # an account named like Cash is not a second Cash
-        wanted.setdefault(catalog.id, (account, place))
-    links = list(EntitySaleSetting.objects.select_for_update().filter(entity_id=entity.id).select_related("sale"))
-    cash = next((link for link in links if link.sale.value_name == CASH_VALUE_NAME), None)
-    # First unlink (one method per account per company), then link.
-    for link in links:
-        if link is cash:
-            continue
-        target = wanted.get(link.sale_id)
-        if target is None or link.account_id != target[0].id:
-            if link.account_id is not None or (target is None and link.is_active):
-                EntitySaleSetting.objects.filter(entity_id=entity.id, sale_id=link.sale_id).update(
-                    account_id=None, is_active=target is not None and link.is_active
-                )
-    if cash is not None and cash.account_id != cash_account:
-        EntitySaleSetting.objects.filter(entity_id=entity.id, sale_id=cash.sale_id).update(account_id=cash_account)
-    for sale_id, (account, place) in wanted.items():
-        updated = EntitySaleSetting.objects.filter(entity_id=entity.id, sale_id=sale_id).update(
-            account_id=account.id, is_active=True, display_order=place
-        )
-        if not updated:
-            EntitySaleSetting.objects.create(
-                entity_id=entity.id, sale_id=sale_id, account_id=account.id, is_active=True, display_order=place
-            )
-    logger.info("sales methods: entity=%s linked to %s sales categories", entity.id, len(wanted))
-
-
-def categories(entity_id) -> list[dict]:
-    """Step 5's list: the company's active methods that are a sales account, in 4.3's order (Cash
-    among them when it is on and the cash-sale account is set)."""
-    links = {
-        link.account_id: link
-        for link in EntitySaleSetting.objects.filter(
-            entity_id=entity_id, is_active=True, account_id__isnull=False
-        ).select_related("sale")
-    }
-    accounts = AccountInfo.objects.filter(id__in=list(links)).order_by("code", "name")
-    return [
-        {"account_id": str(a.id), "code": a.code or a.xero_code or "", "name": a.name,
-         "method": links[a.id].sale.sale_name}
-        for a in accounts
-    ]

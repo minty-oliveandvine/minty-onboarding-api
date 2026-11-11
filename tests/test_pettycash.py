@@ -69,7 +69,7 @@ def test_methods_round_trip(client, auth, entity):
     assert get_methods(client, auth, entity) == {
         "electronic": ["Visa", "Octopus"],
         "delivery": ["Keeta"],
-        "categories": [],  # a company with no mode has no sales categories (2026-11-11)
+        "groups": "electronic_delivery",  # no business type yet: both lists (2026-11-11)
     }
 
 

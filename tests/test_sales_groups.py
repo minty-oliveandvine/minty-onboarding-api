@@ -36,9 +36,6 @@ def test_a_company_with_a_mode_edits_its_methods(client, auth, entity):
     active = set(EntitySaleSetting.objects.filter(entity_id=entity.id, is_active=True)
                  .values_list("sale__sale_name", flat=True))
     assert active == {"Visa", "Octopus"}
-    assert not EntitySaleSetting.objects.filter(entity_id=entity.id, account_id__isnull=False).exists(), (
-        "no account link any more"
-    )
 
 
 @pytest.mark.django_db

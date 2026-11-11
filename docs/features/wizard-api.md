@@ -100,7 +100,7 @@ account shares it. Blank means the payer's own address is used instead.
   submitted name lists, never delete-and-reinsert (`services/sales_methods.py`; catalogue
   rows are shared and get-or-created; permission `SALES_METHOD_CREATE`). Free lists with no
   account link (owner, 2026-11-11: the one-day link to step 4's sales categories is gone, and
-  `entity_sale_setting.account_id` is unused again). Which lists follow the business type
+  the column, an unreleased minty-db v0.6, was dropped again). Which lists follow the business type
   (`sales_methods.groups`): `GET` (and `/state`'s `sales_methods`) carries `groups` -
   `non_cash` for a retail shop, a service or a general business (step 5 shows one Non-cash list,
   posted as `electronic` with `delivery: []`), `electronic_delivery` for Restaurant & Food and a

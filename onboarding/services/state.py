@@ -187,8 +187,6 @@ def derive_current_step(
     on_its_own = accounting.minty_on_its_own(entity)
     if not xero.get("connected") and not (on_its_own and entity.uses_sales_cash is not None):
         return step_defs.STEP_ACCOUNTING
-    if on_its_own:
-        account_codes_done = True  # chosen inside step 4 (4.3-4.5), and a missing one only warns
     # Xero is connected. Petty-cash configuration is the next gate when that module is on.
     if MODULE_PETTY_CASH in modules and not account_codes_done:
         return step_defs.STEP_SALES
@@ -209,7 +207,12 @@ def get_onboarding_state(user_id, entity: Entity) -> dict:
     setup = setup_summary(entity.id)
     modules = enabled_modules(setup)
     xero = _xero_state(setup)
-    account_codes_done = _account_codes_done(entity.id)
+    if entity.setup_mode:
+        # Step 4 chooses the accounts now (2026-11-11), so Petty Cash's own step (5) is done once
+        # its opening balance is saved.
+        account_codes_done = setup is not None and setup.start_date is not None
+    else:
+        account_codes_done = _account_codes_done(entity.id)
     current_step = derive_current_step(entity, modules, xero, account_codes_done)
 
     return {

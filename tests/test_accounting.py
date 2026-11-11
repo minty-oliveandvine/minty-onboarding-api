@@ -627,7 +627,9 @@ def test_a_minty_company_moves_past_step_4_once_it_has_answered(minty):
     assert state.derive_current_step(minty, modules, {"connected": False}, False) == 4
     Entity.objects.filter(id=minty.id).update(uses_sales_cash=True)
     minty.refresh_from_db()
-    assert state.derive_current_step(minty, modules, {"connected": False}, False) == 3
+    # Petty Cash's own step (5) until its opening balance is saved (2026-11-11).
+    assert state.derive_current_step(minty, modules, {"connected": False}, False) == 5
+    assert state.derive_current_step(minty, modules, {"connected": False}, True) == 3
     assert state.derive_current_step(minty, ["PAYMENT_REQUEST"], {"connected": False}, False) == 8
 
 

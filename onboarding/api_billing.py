@@ -27,7 +27,7 @@ privilege of its own -- there is no service credential here to scope wrongly.
 import logging
 
 from minty_db.enums import EntityStatus
-from minty_db.models import EntityBillAccountXero, EntityFunctionMap
+from minty_db.models import EntityBillAccountXero, EntityFunctionMap, EntityPettycashSettings
 from ninja import Body, Router, Status
 
 from core import minty_client, subscription_client
@@ -39,6 +39,9 @@ from onboarding.services import state as state_service
 logger = logging.getLogger("minty-onboarding")
 
 billing_router = Router()
+
+#: The contacts step 7 asks for (the cash-sale one only with cash sales).
+PETTY_CASH_CONTACTS = ("director_contact_id", "cash_sale_contact_id", "discrepancy_contact_id")
 
 
 def _get(request, path: str, entity_id: str):
@@ -114,7 +117,8 @@ def setup_gaps(entity) -> list[dict]:
     """What the company's chosen modules still need before it can go live, as
     ``[{"step": <wizard step>, "message": ...}]`` - empty when nothing is missing.
 
-    Petty Cash needs Xero plus the six accounts and three contacts publishing posts with;
+    Petty Cash needs Xero plus daily closing's accounts as step 4 lists them and the contacts
+    publishing posts with (none for cash sales when the company banks them all);
     Payment Request needs Xero plus at least one ticked bill account code, and a default code
     (if one is set) that is ticked. Read from ``entity_setup_summary`` (a Postgres view) and,
     for the default code, ``entity_bill_account_xero``; only when a module is on - a company
@@ -137,34 +141,31 @@ def setup_gaps(entity) -> list[dict]:
     elif (pettycash or bills) and not setup.xero_org_linked:
         gaps.append({"step": 4, "message": "Connect Xero."})
         return gaps  # nothing below can be mapped without it
-    if (
-        pettycash
-        and not accounting.minty_on_its_own(entity)
-        and (setup.pettycash_accounts_set < setup.pettycash_accounts_total)
-    ):
-        gaps.append(
-            {
-                "step": 6,
-                "message": (
-                    f"Choose the petty cash account codes "
-                    f"({setup.pettycash_accounts_set} of {setup.pettycash_accounts_total} set)."
-                ),
-            }
+    if pettycash and not accounting.minty_on_its_own(entity):
+        # Daily closing's accounts as step 4 (X4) lists them, and the contacts step 7 asks for: a
+        # company banking all its sales has no cash-sale account or contact (2026-11-11). The
+        # discrepancy bank isn't counted - choosing petty cash fills it.
+        settings = EntityPettycashSettings.objects.filter(entity_id=entity.id).first()
+        roles = accounting._slot_roles(entity)
+        accounts = sum(
+            1 for r in roles if settings and getattr(settings, accounting.SLOTS[r][0]) is not None
         )
-    if (
-        pettycash
-        and not accounting.minty_on_its_own(entity)
-        and (setup.pettycash_contacts_set < setup.pettycash_contacts_total)
-    ):
-        gaps.append(
-            {
-                "step": 7,
-                "message": (
-                    f"Choose the petty cash contacts "
-                    f"({setup.pettycash_contacts_set} of {setup.pettycash_contacts_total} set)."
-                ),
-            }
-        )
+        if accounts < len(roles):
+            gaps.append(
+                {
+                    "step": 4,
+                    "message": f"Choose the accounts daily closing needs ({accounts} of {len(roles)} set).",
+                }
+            )
+        contacts = [c for c in PETTY_CASH_CONTACTS if c != "cash_sale_contact_id" or "cash_sale" in roles]
+        chosen = sum(1 for c in contacts if settings and getattr(settings, c) is not None)
+        if chosen < len(contacts):
+            gaps.append(
+                {
+                    "step": 7,
+                    "message": f"Choose the petty cash contacts ({chosen} of {len(contacts)} set).",
+                }
+            )
     if bills and setup.bill_accounts_set < 1:
         gaps.append({"step": 8, "message": "Tick at least one payment request account code."})
     if (

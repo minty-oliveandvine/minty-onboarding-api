@@ -119,7 +119,7 @@ def save_opening_balance(user_id, entity_id: str, start_date, amount) -> dict:
             "Your first report is already posted, so the opening balance can't change."
         )
 
-    # Step 5 runs before Step 6 (account codes) creates the row, so it may not exist yet.
+    # Step 5 may come before anything else writes the settings row, so it may not exist yet.
     row, created = EntityPettycashSettings.objects.get_or_create(entity_id=entity_id)
     row.opening_balance = value
     row.start_date = start

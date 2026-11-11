@@ -644,7 +644,13 @@ def _assign(entity_id, role, account: AccountInfo | None) -> dict:
     if account is not None and other and getattr(settings, SLOTS[other][0]) == account.id:
         return {"account_id": SAME_BANK}
     setattr(settings, column, account.id if account else None)
-    settings.save(update_fields=[column.removesuffix("_id")])
+    fields = [column.removesuffix("_id")]
+    if role == "petty_cash":
+        # A cash difference settles against the float itself: the old step 6 set both, and Petty
+        # Cash and finalize still read the discrepancy bank (2026-11-11).
+        settings.discrepancy_bank_account_id = settings.pettycash_account_id
+        fields.append("discrepancy_bank_account")
+    settings.save(update_fields=fields)
     return {}
 
 
@@ -901,6 +907,16 @@ def _add_shared_rows(user_id, entity: Entity) -> int:
         _from_template(user_id, entity, template, is_system=bool(template.is_system))
         added += 1
     return added
+
+
+def payment_accounts(entity: Entity) -> list[AccountInfo]:
+    """Payment Settings' list (wizard step 8; owner, 2026-11-11): step 4's expense accounts - a
+    Minty company's own (4.4), a Xero company's ticked in X3 (or by the old wizard)."""
+    rows = _active(entity.id).filter(account_type__in=KINDS["expense"], is_system=False)
+    if minty_on_its_own(entity):
+        return list(rows)
+    used = _used_ids(entity.id)
+    return [a for a in rows.exclude(xero_account_id__isnull=True).exclude(xero_account_id="") if a.id in used]
 
 
 def minty_on_its_own(entity: Entity) -> bool:

@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import pytest
 from minty_db.models import (
+    Entity,
     EntityPettycashSettings,
     EntitySaleSetting,
     Invitation,
@@ -172,7 +173,7 @@ def test_petty_cash_without_account_codes_lands_on_sales(
 
 
 @pytest.mark.django_db
-def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
+def test_petty_cash_with_its_opening_balance_and_no_bill_lands_on_invite(
     client, auth, entity, enable_module, xero_unverifiable
 ):
     enable_module(entity, "PETTY_CASH")
@@ -191,6 +192,11 @@ def test_petty_cash_with_account_codes_and_no_bill_lands_on_invite(
         status="ACTIVE",
     )
     EntityPettycashSettings.objects.create(entity_id=entity.id, pettycash_account_id=account.id)
+    # With a mode (a Xero org sets 'xero'), step 4 chose the accounts: Petty Cash's step (5) is
+    # done once its opening balance is saved (2026-11-11).
+    Entity.objects.filter(id=entity.id).update(setup_mode="xero")
+    assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_SALES
+    EntityPettycashSettings.objects.filter(entity_id=entity.id).update(start_date="2026-11-01")
     assert state_of(client, auth, entity)["current_step"] == step_defs.STEP_INVITE
 
 
@@ -473,6 +479,7 @@ def test_disabled_and_other_typed_sales_methods_are_excluded(client, auth, entit
     assert state_of(client, auth, entity)["sales_methods"] == {
         "electronic": [],
         "delivery": [],
+        "categories": [],
     }
 
 

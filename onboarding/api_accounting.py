@@ -5,17 +5,29 @@ service then checks the role permission (``COA_*``), as ``xero_lists`` does. One
 whole step (``GET /accounting``); each change answers what the screen needs to redraw.
 """
 
+from django.db import transaction
 from django.http import JsonResponse
+from minty_db.models import Entity
 from ninja import Body, Router
 
 from core.permissions import entity_for_member, require_entity_id
-from onboarding.services import accounting
+from onboarding.services import accounting, sales_methods
 
 accounting_router = Router()
 
 
 def _answer(result: tuple[dict, int]) -> JsonResponse:
     body, status = result
+    return JsonResponse(body, status=status)
+
+
+def _changed(entity_id, change) -> JsonResponse:
+    """Run a step-4 change and, when it succeeds, re-link the sales methods to the sales categories
+    (owner, 2026-11-11: step 5 shows step 4's) - one transaction, so they never disagree."""
+    with transaction.atomic():
+        body, status = change()
+        if status < 300:
+            sales_methods.sync_from_accounts(Entity.objects.get(id=entity_id))
     return JsonResponse(body, status=status)
 
 
@@ -44,13 +56,14 @@ def post_business(request, payload: dict = Body(default={})):
     """4.2 - ``{entity_id, business_type: "fnb" | "retail" | "service" | "general" | null,
     uses_sales_cash: bool}`` (null business type = "None of these"; "Not sure" sends true)."""
     entity_id = _entity(request, payload)
-    return _answer(
-        accounting.set_business(
+    return _changed(
+        entity_id,
+        lambda: accounting.set_business(
             request.auth_user_id,
             entity_id,
             payload.get("business_type"),
             payload.get("uses_sales_cash"),
-        )
+        ),
     )
 
 
@@ -65,10 +78,11 @@ def get_autofill(request, entity_id: str = "", kind: str = ""):
 def post_autofill(request, payload: dict = Body(default={})):
     """``{entity_id, kind, template_ids: [...]}`` - add the chosen suggestions."""
     entity_id = _entity(request, payload)
-    return _answer(
-        accounting.apply_autofill(
+    return _changed(
+        entity_id,
+        lambda: accounting.apply_autofill(
             request.auth_user_id, entity_id, payload.get("kind"), payload.get("template_ids")
-        )
+        ),
     )
 
 
@@ -76,28 +90,37 @@ def post_autofill(request, payload: dict = Body(default={})):
 def post_revert(request, payload: dict = Body(default={})):
     """``{entity_id, kind}`` - take one list's Auto Fill rows back out (the used ones stay)."""
     entity_id = _entity(request, payload)
-    return _answer(accounting.revert(request.auth_user_id, entity_id, payload.get("kind")))
+    return _changed(
+        entity_id, lambda: accounting.revert(request.auth_user_id, entity_id, payload.get("kind"))
+    )
 
 
 @accounting_router.post("/accounting/accounts")
 def post_account(request, payload: dict = Body(default={})):
     """``{entity_id, code, name, type, description?, role?}`` - add an account (201)."""
     entity_id = _entity(request, payload)
-    return _answer(accounting.create_account(request.auth_user_id, entity_id, payload))
+    return _changed(
+        entity_id, lambda: accounting.create_account(request.auth_user_id, entity_id, payload)
+    )
 
 
 @accounting_router.patch("/accounting/accounts/{account_id}")
 def patch_account(request, account_id: str, payload: dict = Body(default={})):
     """``{entity_id, code, name, type, description?}`` - edit one account."""
     entity_id = _entity(request, payload)
-    return _answer(accounting.update_account(request.auth_user_id, entity_id, account_id, payload))
+    return _changed(
+        entity_id,
+        lambda: accounting.update_account(request.auth_user_id, entity_id, account_id, payload),
+    )
 
 
 @accounting_router.delete("/accounting/accounts/{account_id}")
 def delete_account(request, account_id: str, entity_id: str = ""):
     """Untick one account: deleted if nothing uses it, else archived."""
     entity_for_member(request.auth_user_id, entity_id)
-    return _answer(accounting.delete_account(request.auth_user_id, entity_id, account_id))
+    return _changed(
+        entity_id, lambda: accounting.delete_account(request.auth_user_id, entity_id, account_id)
+    )
 
 
 @accounting_router.post("/accounting/xero-accounts")
@@ -105,10 +128,11 @@ def post_xero_accounts(request, payload: dict = Body(default={})):
     """X2, X3 - ``{entity_id, kind: "sales" | "expense", account_ids}``: exactly these of the
     Xero chart's accounts are the ones Minty uses. Answers the whole step again."""
     entity_id = _entity(request, payload)
-    return _answer(
-        accounting.set_xero_ticks(
+    return _changed(
+        entity_id,
+        lambda: accounting.set_xero_ticks(
             request.auth_user_id, entity_id, payload.get("kind"), payload.get("account_ids")
-        )
+        ),
     )
 
 
@@ -116,15 +140,16 @@ def post_xero_accounts(request, payload: dict = Body(default={})):
 def post_xero_refresh(request, payload: dict = Body(default={})):
     """Refresh from Xero - ``{entity_id}``: the chart synced now, then the whole step again."""
     entity_id = _entity(request, payload)
-    return _answer(accounting.refresh_from_xero(request.auth_user_id, entity_id))
+    return _changed(entity_id, lambda: accounting.refresh_from_xero(request.auth_user_id, entity_id))
 
 
 @accounting_router.post("/accounting/slots")
 def post_slot(request, payload: dict = Body(default={})):
     """``{entity_id, role, account_id | null}`` - choose (or clear) a daily-closing account."""
     entity_id = _entity(request, payload)
-    return _answer(
-        accounting.set_slot(
+    return _changed(
+        entity_id,
+        lambda: accounting.set_slot(
             request.auth_user_id, entity_id, payload.get("role"), payload.get("account_id")
-        )
+        ),
     )

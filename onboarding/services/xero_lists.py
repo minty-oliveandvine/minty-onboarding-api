@@ -32,6 +32,7 @@ import logging
 from django.db import transaction
 from minty_db.models import (
     AccountInfo,
+    AccountModule,
     Entity,
     EntityAccountXero,
     EntityBillAccountXero,
@@ -279,6 +280,9 @@ def save_contacts(user_id, entity_id, contacts) -> tuple[dict, int]:
         return NOT_FOUND, 404
     if token is None:
         return _not_connected("save contacts")
+    if entity.uses_sales_cash is False:
+        # Banking all its sales (step 4), the company has no cash sales to post: no contact for them.
+        contacts = {**contacts, "cash_sale": ""}
     wanted = {k: (contacts.get(k) or "").strip() for k, _ in CONTACT_FIELDS if (contacts.get(k) or "").strip()}
 
     def find(xero_id):
@@ -321,6 +325,34 @@ def create_contact(user_id, entity_id, name) -> tuple[dict, int]:
 
 
 # ---- step 8: the bill codes -------------------------------------------------------------------
+#
+# Payment Settings follows Accounting Setup (owner, 2026-11-11): its list is step 4's expense
+# accounts (``accounting.payment_accounts``), each ticked by the old ``entity_bill_account_xero``
+# row where one holds a choice (the table minty-payment-request-api reads), else by Payment
+# Request's ``account_module`` row. A save writes both, and turns off any old row for an account
+# step 4 doesn't list, so Payment Request offers exactly what the person ticked here.
+
+NO_EXPENSE_ACCOUNTS = "Add an expense account in Accounting Setup first."
+
+
+def _bill_gate(entity: Entity, what: str):
+    from onboarding.services.accounting import minty_on_its_own
+
+    if xero_connected(entity) or minty_on_its_own(entity):
+        return None
+    return _not_connected(what)
+
+
+def _payment_list(entity: Entity) -> dict:
+    """``{code: account}`` for step 4's expense accounts with a code, in code order."""
+    from onboarding.services.accounting import payment_accounts
+
+    listed = {}
+    for account in payment_accounts(entity):
+        code = (account.code or account.xero_code or "").strip()
+        if code and code not in listed:
+            listed[code] = account
+    return dict(sorted(listed.items(), key=lambda item: _code_key(item[0])))
 
 
 def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
@@ -329,27 +361,32 @@ def bill_code_options(user_id, entity_id) -> tuple[dict, int]:
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         return NOT_FOUND, 404
-    on_its_own = entity.setup_mode == "minty" and not entity.xero_org_id  # its own expense accounts
-    if not xero_connected(entity) and not on_its_own:
-        return _not_connected("load payment account codes")
-    rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
-    if not rows.exists() and not on_its_own and xero_client.sync(entity_id):  # the connect fills it; the sync mirrors it too
-        rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
-    codes, selected, inactive, default = [], [], 0, ""
-    for row in rows:
-        code = (row.account_code or "").strip()
-        if not code:
+    refused = _bill_gate(entity, "load payment account codes")
+    if refused:
+        return refused
+    listed = _payment_list(entity)
+    modules = {
+        m.account_id: m
+        for m in AccountModule.objects.filter(
+            entity_id=entity_id, module_code="PAYMENT_REQUEST", account_id__in=[a.id for a in listed.values()]
+        )
+    }
+    old = {}
+    for row in EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False):
+        old.setdefault((row.account_code or "").strip(), row)
+    codes, selected, decided, default = [], [], False, ""
+    for code, account in listed.items():
+        choice = old.get(code) or modules.get(account.id)
+        codes.append({"code": code, "name": account.name or ""})
+        if choice is None:
             continue
-        if row.is_default:
-            default = code
-        codes.append({"code": code, "name": row.account_name or ""})
-        if row.is_active:
+        decided = True
+        if choice.is_active:
             selected.append(code)
-        else:
-            inactive += 1
-    codes.sort(key=lambda e: _code_key(e["code"]))
+        if choice.is_default:
+            default = code
     return {"connected": xero_connected(entity), "bill_codes": codes, "selected_codes": selected,
-            "default_all": not selected and inactive == 0, "default_code": default}, 200
+            "default_all": bool(codes) and not decided, "default_code": default}, 200
 
 
 def save_bill_codes(user_id, entity_id, selected_codes, default_code=None) -> tuple[dict, int]:
@@ -360,25 +397,50 @@ def save_bill_codes(user_id, entity_id, selected_codes, default_code=None) -> tu
     entity = Entity.objects.filter(id=entity_id).first()
     if entity is None:
         return NOT_FOUND, 404
-    if not xero_connected(entity) and not (entity.setup_mode == "minty" and not entity.xero_org_id):
-        return _not_connected("save payment account codes")
-    selected = sorted({str(c).strip() for c in selected_codes if str(c).strip()})
-    rows = EntityBillAccountXero.objects.filter(entity_id=entity_id, is_deleted=False)
-    listed = {(r or "").strip() for r in rows.values_list("account_code", flat=True)} - {""}
-    if listed and not listed & set(selected):
+    refused = _bill_gate(entity, "save payment account codes")
+    if refused:
+        return refused
+    listed = _payment_list(entity)
+    if not listed:
+        return {"error": NO_EXPENSE_ACCOUNTS}, 409
+    selected = sorted({str(c).strip() for c in selected_codes} & set(listed), key=_code_key)
+    if not selected:
         return {"error": "Pick at least one account code."}, 400
     default = str(default_code).strip() if default_code is not None else None
     if default and default not in selected:
         return {"error": "The default account code must be one of the ticked codes."}, 400
     with transaction.atomic():
-        for row in rows.select_for_update():
+        if default is not None:  # one default per module: clear before setting
+            AccountModule.objects.filter(
+                entity_id=entity_id, module_code="PAYMENT_REQUEST", is_default=True
+            ).update(is_default=False)
+        for code, account in listed.items():
+            values = {"is_active": code in selected}
+            if default is not None:
+                values["is_default"] = code == default
+            AccountModule.objects.update_or_create(
+                account_id=account.id, module_code="PAYMENT_REQUEST",
+                defaults=values, create_defaults={**values, "entity_id": entity.id},
+            )
+        rows = list(EntityBillAccountXero.objects.select_for_update().filter(entity_id=entity_id, is_deleted=False))
+        have = {(r.account_code or "").strip() for r in rows}
+        for row in rows:
             code = (row.account_code or "").strip()
             row.is_active = code in selected
             fields = ["is_active"]
-            if default is not None:
+            if code not in listed:
+                row.is_default = False
+                fields.append("is_default")
+            elif default is not None:
                 row.is_default = code == default
                 fields.append("is_default")
             row.save(update_fields=fields)
-    logger.info("save_bill_codes: entity=%s selected=%s", entity_id, len(selected))
+        for code, account in listed.items():
+            if code not in have:
+                EntityBillAccountXero.objects.create(
+                    entity_id=entity_id, account_code=code, account_name=account.name or "",
+                    account_type=account.type or "", xero_account_id=account.xero_account_id or "",
+                    is_active=code in selected, is_default=code == default,
+                )
+    logger.info("save_bill_codes: entity=%s selected=%s of %s", entity_id, len(selected), len(listed))
     return {"ok": True, "selected_codes": selected, "default_code": default}, 200
-

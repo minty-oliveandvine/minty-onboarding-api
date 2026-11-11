@@ -318,8 +318,20 @@ def bill(entity, code, name, *, active=False, default=False):
                                                 is_active=active, is_default=default, is_deleted=False, sort_order=0)
 
 
+def ticked(entity, code, name):
+    """An expense account of the Xero chart ticked in step 4 (X3, or the old wizard's tick): Payment
+    Settings lists only these (owner, 2026-11-11)."""
+    account = AccountInfo.objects.create(entity_id=entity.id, xero_account_id=f"a-{code}", xero_code=code, code=code,
+                                         name=name, type="EXPENSE", account_type="expense", status="ACTIVE",
+                                         record_status="active")
+    EntityAccountXero.objects.create(account_id=account.id, name=name, type="EXPENSE", is_active=True)
+    return account
+
+
 @pytest.mark.django_db
 def test_the_bill_codes_are_read_sorted_with_the_default(client, auth, connected, xero):
+    ticked(connected, "404", "Bank Fees")
+    ticked(connected, "40", "Odd")
     bill(connected, "404", "Bank Fees", active=True, default=True)
     bill(connected, "40", "Odd", active=False)
     resp = client.get(BILLS, {"entity_id": connected.id}, **auth)
@@ -330,15 +342,18 @@ def test_the_bill_codes_are_read_sorted_with_the_default(client, auth, connected
 
 
 @pytest.mark.django_db
-def test_an_empty_bill_list_asks_the_sync_once(client, auth, connected, xero):
-    xero.on_sync = lambda: bill(connected, "400", "Advertising")
+def test_the_bill_codes_are_step_4s_ticks_with_no_sync(client, auth, connected, xero):
+    ticked(connected, "400", "Advertising")
+    bill(connected, "404", "Bank Fees", active=True)  # synced from Xero, not ticked in step 4
     body = client.get(BILLS, {"entity_id": connected.id}, **auth).json()
-    assert body["bill_codes"] == [{"code": "400", "name": "Advertising"}] and body["default_all"] is False
-    assert xero.calls == [("SYNC",)]
+    assert body["bill_codes"] == [{"code": "400", "name": "Advertising"}] and body["default_all"] is True
+    assert xero.calls == []
 
 
 @pytest.mark.django_db
 def test_the_bill_codes_save_keeps_one_and_a_ticked_default(client, auth, connected, xero):
+    ticked(connected, "400", "Advertising")
+    ticked(connected, "404", "Bank Fees")
     bill(connected, "400", "Advertising", active=True)
     bill(connected, "404", "Bank Fees", default=True)
 

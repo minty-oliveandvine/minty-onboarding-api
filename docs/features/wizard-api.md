@@ -98,7 +98,21 @@ account shares it. Blank means the payer's own address is used instead.
 
 - `GET/POST /sales-methods` — the electronic and delivery methods, **reconciled** to the
   submitted name lists, never delete-and-reinsert (`services/sales_methods.py`; catalogue
-  rows are shared and get-or-created; permission `SALES_METHOD_CREATE`).
+  rows are shared and get-or-created; permission `SALES_METHOD_CREATE`). **Since 2026-11-11 a
+  company with a mode (step 4 asked how Minty works; a Xero org sets `xero`) has step 4's sales
+  categories as its methods (owner: step 5 shows them, one read-only list):** `POST` is 409 "Your
+  sales categories come from Accounting Setup. Change them there.", and `GET` (and `/state`'s
+  `sales_methods`) adds `categories: [{account_id, code, name, method}]` in 4.3's order. Every
+  successful step-4 change (`api_accounting._changed`: business, Auto Fill and its revert, add /
+  edit / remove an account, X2-X3 ticks, Refresh from Xero, the daily-closing accounts) re-links
+  them in the same transaction (`sales_methods.sync_from_accounts`): each `sales`/`revenue`
+  category (other income isn't taken at the till; on Xero only X2's ticks) is the catalogue row of
+  its name, its link (`entity_sale_setting.account_id`, minty-db v0.6) on and in order; a new row
+  is typed `delivery` when its name says so, else `electronic` (Petty Cash's daily closing still
+  groups by type). The cash-sale account is the Cash method's account, never a second method, and
+  Cash stays on or off by the cash answer. A renamed, removed, retyped or unticked category's link,
+  and any older method with no account, is switched off and unlinked - never deleted (report
+  history points at it). A company with no mode keeps today's lists.
 - `POST /opening-balance` — the starting cash and the date reporting starts, saved as
   `entity_pettycash_settings.opening_balance` / `start_date` (the row is created if Step 6
   has not made it yet; `services/opening_balance.py`). No report is written: Minty's first
@@ -125,10 +139,20 @@ account shares it. Blank means the payer's own address is used instead.
     it; the discrepancy bank mirrors the petty cash bank; the ticked codes are exactly the
     posted ones, at least one when the company has any.
   - `POST /contacts` resolves from the stored contacts, asking the sync once only when one is
-    missing. `POST /contacts/create` makes a supplier in Xero and stores it
+    missing. A company banking all its sales (step 4) keeps no cash-sale contact: it is cleared
+    whatever is posted (2026-11-11). `POST /contacts/create` makes a supplier in Xero and stores it
     (`category = expense_contact`); Xero refusing is 502.
-  - `GET /bill-codes` reads `entity_bill_account_xero` (asking the sync only when the company
-    has none); `POST` ticks exactly the posted codes, at least one, with a default among them.
+  - **`/bill-codes` follows Accounting Setup (owner, 2026-11-11):** the list is step 4's expense
+    accounts (`accounting.payment_accounts`) - a Minty company's own (4.4), a Xero company's ticked
+    in X3 (or by the old wizard) - with no Xero call. Each is ticked by its old
+    `entity_bill_account_xero` row when one exists (what minty-payment-request-api reads), else by
+    Payment Request's `account_module` row; `default_all` is true only when none has either.
+    `POST` ticks exactly the posted codes among them (at least one: "Pick at least one account
+    code.", a default among them: "The default account code must be one of the ticked codes.") and
+    writes **both** tables - `account_module` PAYMENT_REQUEST (`is_active`, one `is_default`, made
+    for a Xero account that has none) and the old rows (made when missing, and turned off for any
+    account step 4 doesn't list). A company with no listed account is 409 "Add an expense account
+    in Accounting Setup first."
 
 ## Accounting Setup - step 4 with Xero optional (`api_accounting.py`, `services/accounting.py`)
 
@@ -149,7 +173,7 @@ field, 409 for a code or name another active account holds.
 | `POST /accounting/accounts {code, name, type, description?, role?}` / `PATCH /accounting/accounts/{id}` / `DELETE /accounting/accounts/{id}` | 4.3b, 4.4a, 4.5a | one account: code (letters, numbers, dots, dashes; up to 10; a bank account may have none), name (up to 80 until CONTRACT widens it), type; `role` also chooses it for that daily-closing account. An account from Xero is changed in Xero (409). Removing deletes an unused account and archives a used one; a system account can't be removed |
 | `POST /accounting/xero-accounts {kind, account_ids}` | X2, X3 (Xero path, 2026-11-10) | Exactly these of the synced Xero `sales`/`expense` accounts are Minty's: Petty Cash's `account_module` rows (`is_active`), and for expenses `entity_account_xero.is_active` too (`xero_lists._tick_codes`, the apps' old reader). 400 for none ticked ("Tick at least one sales account to continue."), a row of the wrong kind, a Minty-made or another company's row; 409 when not connected (a kept org after a disconnect is not). Answers the whole step (`GET /accounting`), whose rows now carry `used` |
 | `POST /accounting/xero-refresh` | Refresh from Xero (X2-X4) | accounts-api's one sync (`core/xero_client.sync`), then the whole step again; 502 _Xero didn't send your accounts just now. Try Refresh again in a moment._; 409 when not connected |
-| `POST /accounting/slots {role, account_id \| null}` | 4.5 | `petty_cash`, `bank`, `cash_sale`, `discrepancy`, `director` -> `entity_pettycash_settings`; an account of the wrong type is refused. Missing ones only warn: Petty Cash asks again before the first closing |
+| `POST /accounting/slots {role, account_id \| null}` | 4.5 | `petty_cash`, `bank`, `cash_sale`, `discrepancy`, `director` -> `entity_pettycash_settings`; an account of the wrong type is refused, and petty cash and the bank can't be one account. Petty cash also fills `discrepancy_bank_account_id` (as the old step 6 did; Petty Cash and finalize read it). Missing ones only warn: Petty Cash asks again before the first closing |
 
 Expense accounts show under two headings from their type (`group`: `direct_costs` =
 `cost_of_sales`, "Cost of what you sell"; `expense`/`overheads` = `running_costs`), never a stored
@@ -164,7 +188,10 @@ moves a Minty-only company past step 4 once the business questions are answered 
 are chosen inside step 4); finalize asks it for neither Xero nor the Xero-only accounts and
 contacts, only the business answers, and it goes live as `disconnected` (the only live value
 before CONTRACT) while the trigger keeps `xero_status = 'not_connected'`; step 8's bill codes are
-its own expense accounts, with no Xero call.
+its own expense accounts, with no Xero call. With a mode chosen (a Xero org sets `xero`), `/state`
+counts Petty Cash's step (5) done once its opening balance is saved, since step 4 chose the
+accounts (2026-11-11). Step 5's sales methods refuse a method named Cash (400 "Cash is set by your
+answer in Accounting Setup."): Cash follows step 4's cash answer only.
 
 ## Invitations (`services/invites.py`)
 
@@ -219,7 +246,9 @@ not `scope`).
 `entity_for_member` (400/403/404). First the setup rule (`setup_gaps`, from
 `entity_setup_summary`, only when a module is on): a company keeping its books in Minty on its
 own (Accounting Setup, above) needs only its business answers; otherwise Petty Cash needs Xero
-plus all six accounts and three contacts; Payment Request needs Xero plus at least one ticked bill account code, and
+plus daily closing's accounts as step 4 lists them (four for a company banking all its sales, else
+five; the discrepancy bank follows petty cash) -> step 4, and the director, discrepancy and (with
+cash sales only) cash-sale contacts -> step 7, read from `entity_pettycash_settings` (2026-11-11); Payment Request needs Xero plus at least one ticked bill account code, and
 a default code (if set) that is ticked - that one read from `entity_bill_account_xero`
 (`EntityBillAccountXero`), since the view has no column for it. Anything missing is a 409 `{"error", "missing": [{"step",
 "message"}]}` and the company stays `onboarding` - All Set lists each with a way back to its

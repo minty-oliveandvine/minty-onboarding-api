@@ -35,6 +35,7 @@ api = NinjaAPI(
 
 register_exception_handlers(api)
 
+from onboarding import internal  # noqa: E402
 from onboarding.api_accounting import accounting_router  # noqa: E402
 from onboarding.api_billing import billing_router  # noqa: E402
 from onboarding.api_entity import entity_router  # noqa: E402
@@ -97,4 +98,9 @@ def health(request):
 urlpatterns = [
     path("health", health, name="health"),
     path("api/onboarding/", api.urls),
+    # a company's accounts and contacts for the hub's Settings, from accounts-api only (2026-11-12)
+    path("api/internal/chart/accounts", internal.accounts, name="internal_chart_accounts"),
+    path("api/internal/chart/accounts/<str:account_id>", internal.account, name="internal_chart_account"),
+    path("api/internal/chart/contacts", internal.contacts, name="internal_chart_contacts"),
+    path("api/internal/chart/contacts/<str:contact_id>", internal.contact, name="internal_chart_contact"),
 ]

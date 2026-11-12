@@ -84,3 +84,53 @@ def sync(entity_id) -> bool:
         logger.error("xero: the sync answered %s for entity %s", response.status_code, entity_id)
         return False
     return True
+
+
+class XeroRefused(Exception):
+    """Xero answered and said no (a 400 with its validation message). ``sentence`` is the
+    person's (Part 11), never Xero's raw body."""
+
+    def __init__(self, sentence: str):
+        super().__init__(sentence)
+        self.sentence = sentence
+
+
+def _xero_reason(response) -> str | None:
+    """Xero's own validation message, from either of its two shapes, if it sent one."""
+    try:
+        body = response.json() or {}
+    except ValueError:
+        return None
+    for element in body.get("Elements") or []:
+        for error in element.get("ValidationErrors") or []:
+            if error.get("Message"):
+                return str(error["Message"]).strip()
+    message = body.get("Message")
+    return str(message).strip() if message else None
+
+
+def write(token: str, xero_org_id, method: str, path: str, body: dict) -> dict:
+    """One write to Xero (owner, 2026-11-12: Settings adds, edits and archives accounts and contacts
+    in Xero too). Its JSON on success; ``XeroRefused`` with a sentence when Xero says no;
+    ``XeroUnanswered`` when it can't be reached or fails."""
+    try:
+        send = {"POST": requests.post, "PUT": requests.put}[method]
+        response = send(f"{settings.XERO_API_BASE_URL}/{path}",
+                        headers={**_headers(token, xero_org_id), "Content-Type": "application/json"},
+                        json=body, timeout=XERO_TIMEOUT)
+    except requests.RequestException as exc:
+        logger.error("xero: %s %s unreachable for org %s: %s", method, path, xero_org_id, exc)
+        raise XeroUnanswered from None
+    if response.status_code in (200, 201):
+        try:
+            return response.json() or {}
+        except ValueError:
+            logger.error("xero: %s %s answered non-JSON for org %s", method, path, xero_org_id)
+            raise XeroUnanswered from None
+    logger.error("xero: %s %s answered %s for org %s: %s", method, path, response.status_code, xero_org_id,
+                 (response.text or "")[:300])
+    if response.status_code == 400:
+        reason = _xero_reason(response)
+        raise XeroRefused(f"Xero didn't accept that: {reason.rstrip('.')}. Change it and try again."
+                          if reason else "Xero didn't accept that. Check it in Xero and try again.")
+    raise XeroUnanswered

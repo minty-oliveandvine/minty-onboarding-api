@@ -8,30 +8,35 @@ RECONCILE, NEVER REPLACE
 
 The POST is a reconciliation against the submitted name lists, not a delete-and-reinsert:
 
-  * a name already present (case-insensitively, in the catalogue) keeps its link, switched on;
-  * a name absent from the list is switched OFF (``is_active=False``), never deleted;
-  * a new name gets a catalogue row and a link.
+  * a name already present (case-insensitively, Minty's or the company's own) keeps its link,
+    switched on;
+  * a name absent from the list: Minty's is switched OFF (``is_active=False``); the company's
+    own is deleted, or switched off with its row when a report used it;
+  * a new name gets a row of the company's own and a link.
 
-Switching off rather than deleting is load-bearing: a method a shop stops accepting does not
-take its history with it -- ``report_sale`` rows still point at the catalogue row.
+Never deleting what a report used is load-bearing: a method a shop stops accepting does not
+take its history with it -- ``report_sale`` rows still point at the row.
 
-THE CATALOGUE IS GLOBAL (C3 of Minty's docs/modernisation/modernisation_plan.md)
+WHO OWNS A METHOD (owner, 2026-11-12; minty-db v0.7 ``sale_info.entity_id``)
 
-``sale_info`` holds one row per method NAME for every company (``sale_name`` is unique);
-``entity_sale_setting`` is the company's link to a row - on/off and order, nothing else. A
-name nobody has used before becomes a new catalogue row for everyone; a name another company
-already typed is simply linked. Types are the ``sale_type`` enum: ``electronic`` /
-``delivery`` / ``other`` (Cash lives in ``other``).
+``sale_info`` rows are Minty's catalogue (``entity_id`` NULL: everyone's, never renamed or
+deleted) or a company's own (``entity_id`` = it: the names it typed). ``entity_sale_setting``
+is the company's link to a row - on/off and order, nothing else. A typed name that is Minty's
+links Minty's row; any other becomes the company's own, never shared with another company.
+Types are the ``sale_type`` enum: ``electronic`` / ``delivery`` / ``other`` (Cash lives in
+``other``).
 """
 
 import logging
 import uuid
 
 from django.db import transaction
+from django.db.models import F, Q
 from minty_db.enums import SaleType
 from minty_db.models import (
     Entity,
     EntitySaleSetting,
+    ReportSale,
     SaleInfo,
 )
 
@@ -82,21 +87,30 @@ def value_name_for(name: str) -> str:
     return (name or "").strip().lower().replace(" ", "_") + "_sales"
 
 
-def resolve_catalog_row(name: str) -> SaleInfo | None:
-    """The catalogue row for a display name, case-insensitively; None if nobody has it."""
+def resolve_catalog_row(name: str, entity_id=None) -> SaleInfo | None:
+    """The row a company means by a display name, case-insensitively: Minty's catalogue first
+    (``entity_id`` NULL, minty-db v0.7), then the company's own enabled row. Another company's own
+    row is never found. None if neither has it."""
     text = (name or "").strip()
     if not text:
         return None
-    return SaleInfo.objects.filter(sale_name__iexact=text).first()
+    mine = Q(entity_id=entity_id, enabled=True) if entity_id else Q(pk__in=[])
+    return (
+        SaleInfo.objects.filter(Q(entity_id__isnull=True) | mine, sale_name__iexact=text)
+        .order_by(F("entity_id").asc(nulls_first=True))
+        .first()
+    )
 
 
-def ensure_catalog_row(name: str, method_type, *, value_name=None, display_order=None) -> SaleInfo:
-    """Get-or-create the GLOBAL catalogue row for ``name``.
+def ensure_catalog_row(name: str, method_type, *, value_name=None, display_order=None, entity_id=None) -> SaleInfo:
+    """Get-or-create the row for ``name``: Minty's or the company's own; else a new row - the
+    company's own when ``entity_id`` is given (a typed name, owner 2026-11-12), Minty's when not
+    (the default Cash only).
 
-    Does not commit -- the caller owns the transaction, so the catalogue row and the link
-    that references it land together or not at all.
+    Does not commit -- the caller owns the transaction, so the row and the link that references
+    it land together or not at all.
     """
-    existing = resolve_catalog_row(name)
+    existing = resolve_catalog_row(name, entity_id)
     if existing is not None:
         return existing
     clean = (name or "").strip() or "Custom"
@@ -107,6 +121,7 @@ def ensure_catalog_row(name: str, method_type, *, value_name=None, display_order
         value_name=value_name or value_name_for(clean),
         display_order=display_order,
         enabled=True,
+        entity_id=entity_id,
     )
 
 
@@ -155,7 +170,7 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
     desired = {SaleType.ELECTRONIC: _clean(electronic), SaleType.DELIVERY: _clean(delivery)}
     for names in desired.values():
         for name in names:
-            row = resolve_catalog_row(name)
+            row = resolve_catalog_row(name, entity_id)
             if name.lower() == "cash" or (row is not None and row.value_name == CASH_VALUE_NAME):
                 # Cash follows step 4's cash answer (accounting._cash_method), never this list:
                 # typed here it would switch Cash on for a company banking all its sales.
@@ -166,7 +181,7 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
         wanted: set = set()
         for method_type, names in desired.items():
             for index, name in enumerate(names):
-                catalog = ensure_catalog_row(name, method_type)
+                catalog = ensure_catalog_row(name, method_type, entity_id=entity_id)
                 wanted.add(catalog.id)
                 link = by_sale_id.get(catalog.id)
                 if link is None:
@@ -176,12 +191,20 @@ def replace(user_id, entity_id: str, electronic, delivery) -> dict:
                 link.display_order = index + 1
                 link.save()
 
-        # Anything previously enabled and now absent is switched off. Never deleted --
-        # report_sale rows still reference the catalogue row.
+        # Anything previously enabled and now absent: Minty's is switched off (the row is
+        # everyone's); the company's own is deleted, or switched off with its row when a report
+        # used it (report_sale still points at it) - owner, 2026-11-12.
         for sale_id, link in by_sale_id.items():
-            if sale_id not in wanted and link.is_active:
+            if sale_id in wanted or not link.is_active:
+                continue
+            if link.sale.entity_id is None or ReportSale.objects.filter(sale_id=sale_id).exists():
                 link.is_active = False
                 link.save(update_fields=["is_active"])
+                if link.sale.entity_id is not None:
+                    SaleInfo.objects.filter(id=sale_id).update(enabled=False)
+            else:
+                EntitySaleSetting.objects.filter(entity_id=entity_id, sale_id=sale_id).delete()
+                SaleInfo.objects.filter(id=sale_id).delete()
 
     logger.info(
         "sales methods: entity=%s electronic=%s delivery=%s",

@@ -19,6 +19,7 @@ from minty_db.models import (
     EntityPettycashSettings,
     EntitySaleSetting,
     Report,
+    ReportSale,
     SaleInfo,
     UserEntity,
 )
@@ -94,20 +95,47 @@ def test_reordering_updates_rather_than_reinserting(client, auth, entity):
     assert get_methods(client, auth, entity)["electronic"] == ["Octopus", "Visa"]
 
 
+def mintys(name, order=1):
+    """A row of Minty's catalogue (``sale_info.entity_id`` NULL, minty-db v0.7)."""
+    return SaleInfo.objects.create(
+        id=uuid.uuid4(), sale_name=name, type="electronic",
+        value_name=name.lower().replace(" ", "_") + "_sales", enabled=True, display_order=order,
+    )
+
+
 @pytest.mark.django_db
-def test_a_removed_method_is_soft_disabled_not_deleted(client, auth, entity):
-    """NEVER DELETED. ``report_sale_detail`` rows still reference the catalog row, so a
-    method a shop stops accepting must not take its history with it."""
+def test_a_removed_minty_method_is_switched_off_not_deleted(client, auth, entity):
+    """Minty's method only comes off the company's list: the link switches off, the row stays."""
+    mintys("Visa")
+    octopus = mintys("Octopus", 7)
     set_methods(client, auth, entity, electronic=["Visa", "Octopus"])
     set_methods(client, auth, entity, electronic=["Visa"])
 
-    octopus = EntitySaleSetting.objects.get(entity_id=entity.id, sale__sale_name="Octopus")
-    assert octopus.is_active is False
+    assert EntitySaleSetting.objects.get(entity_id=entity.id, sale=octopus).is_active is False
     assert get_methods(client, auth, entity)["electronic"] == ["Visa"]
 
 
 @pytest.mark.django_db
+def test_a_removed_own_method_is_deleted_unless_a_report_used_it(client, auth, entity):
+    """owner, 2026-11-12: the company's own method is deleted completely; one a report used is
+    switched off (row and link) so the report keeps its amount and nothing offers it again."""
+    set_methods(client, auth, entity, electronic=["Tap & Go", "Kpay"])
+    kpay = SaleInfo.objects.get(sale_name="Kpay")
+    report = Report.objects.create(id=uuid.uuid4(), entity_id=entity.id, transaction_date=date(2026, 11, 1))
+    ReportSale.objects.create(id=uuid.uuid4(), report_id=report.id, sale_id=kpay.id, amount=Decimal("5"))
+
+    set_methods(client, auth, entity, electronic=[])
+
+    assert not SaleInfo.objects.filter(sale_name="Tap & Go").exists()
+    assert EntitySaleSetting.objects.filter(entity_id=entity.id).count() == 1
+    kpay.refresh_from_db()
+    assert kpay.enabled is False
+    assert EntitySaleSetting.objects.get(entity_id=entity.id, sale=kpay).is_active is False
+
+
+@pytest.mark.django_db
 def test_re_adding_a_disabled_method_revives_the_same_row(client, auth, entity):
+    mintys("Visa")
     set_methods(client, auth, entity, electronic=["Visa"])
     sale_id = EntitySaleSetting.objects.get(entity_id=entity.id, sale__sale_name="Visa").sale_id
     set_methods(client, auth, entity, electronic=[])
@@ -192,11 +220,12 @@ def test_cash_is_untouched_by_this_screen(client, auth, entity):
 @pytest.mark.django_db
 def test_a_user_typed_method_gets_a_catalogue_row(client, auth, entity):
     """WITHOUT ONE IT IS NOT STORABLE: a report's figures are ``report_sale`` rows pointing at
-    the catalogue. The row is global - the next company that types "Tap & Go" links to it."""
+    ``sale_info``. A typed name that isn't Minty's is the company's own row (owner, 2026-11-12)."""
     set_methods(client, auth, entity, electronic=["Tap & Go"])
     row = EntitySaleSetting.objects.get(entity_id=entity.id)
     catalog = row.sale
     assert catalog.sale_name == "Tap & Go"
+    assert str(catalog.entity_id) == str(entity.id)
     assert catalog.type == "electronic"
     assert catalog.value_name == "tap_&_go_sales"  # the form-field name Minty derives too
 
@@ -227,8 +256,9 @@ def test_an_existing_catalogue_row_is_linked_rather_than_duplicated(client, auth
 
 
 @pytest.mark.django_db
-def test_two_companies_share_one_catalogue_row(client, auth, user, entity, countries):
-    """The catalogue is global (sale_name is unique); each company's on/off is its own."""
+def test_two_companies_share_mintys_row_but_never_each_others_own(client, auth, user, entity, countries):
+    """Minty's row is everyone's; each company's on/off is its own. A name a company typed is its
+    own, so another company typing it gets its own row."""
     other = Entity.objects.create(
         id=str(uuid.uuid4()), name="Other Co", country_code="HK", status="onboarding"
     )
@@ -236,13 +266,17 @@ def test_two_companies_share_one_catalogue_row(client, auth, user, entity, count
         user_id=user.id, entity_id=other.id, role="super_admin", approved=True
     )
 
-    set_methods(client, auth, entity, electronic=["Payme"])
-    set_methods(client, auth, other, electronic=["payme"])
+    mintys("Payme")
+    set_methods(client, auth, entity, electronic=["Payme", "Kpay"])
+    set_methods(client, auth, other, electronic=["payme", "kpay"])
     assert SaleInfo.objects.filter(sale_name__iexact="payme").count() == 1
+    assert sorted(str(s.entity_id) for s in SaleInfo.objects.filter(sale_name__iexact="kpay")) == sorted(
+        [str(entity.id), str(other.id)]
+    )
 
     set_methods(client, auth, entity, electronic=[])
     assert EntitySaleSetting.objects.get(entity_id=entity.id).is_active is False
-    assert EntitySaleSetting.objects.get(entity_id=other.id).is_active is True
+    assert EntitySaleSetting.objects.filter(entity_id=other.id, is_active=True).count() == 2
 
 
 # ---------------------------------------------------------------------------

@@ -332,3 +332,4 @@ def _no_network(monkeypatch):
     monkeypatch.setattr(requests, "request", _refuse)
     monkeypatch.setattr(requests, "post", _refuse)
     monkeypatch.setattr(requests, "get", _refuse)
+    monkeypatch.setattr(requests, "put", _refuse)

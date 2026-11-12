@@ -317,16 +317,17 @@ def create_contact(user_id, entity_id, name) -> tuple[dict, int]:
         return NOT_FOUND, 404
     if token is None:
         return _not_connected("create contacts")
+    # one way a contact is added (owner, 2026-11-12): a name the company already has is that
+    # contact, never a second one in Xero; else Xero's of that name, else made there
+    from onboarding.services import chart
+
     try:
-        made = xero_client.create_supplier(token, entity.xero_org_id, name)
-    except xero_client.XeroUnanswered:
-        return {"error": "Failed to create contact in Xero. Please try again."}, 502
-    contact_id = made["ContactID"]
-    if not XeroContactSync.objects.filter(entity_id=entity_id, xero_contact_id=contact_id).exists():
-        XeroContactSync.objects.create(entity_id=entity_id, xero_contact_id=contact_id, xero_org_id=entity.xero_org_id,
-                                       name=(made.get("Name") or name)[:150], category="expense_contact")
-    logger.info("create_contact: entity=%s made contact %s", entity_id, contact_id)
-    return {"id": contact_id, "label": name}, 201
+        contact, how = chart.find_or_make_contact(user_id, entity, name, token)
+    except chart._Stop as stop:
+        return stop.answer, stop.status
+    logger.info("create_contact: entity=%s %s contact %s", entity_id, how,
+                contact.xero_contact_id)
+    return {"id": contact.xero_contact_id, "label": contact.name}, 201
 
 
 # ---- step 8: the bill codes -------------------------------------------------------------------

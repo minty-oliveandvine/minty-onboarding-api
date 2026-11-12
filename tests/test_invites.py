@@ -197,10 +197,10 @@ def test_you_cannot_cancel_an_invitation_that_outranks_you(client, user, entity)
 
 @pytest.mark.django_db
 def test_you_cannot_cancel_an_invitation_for_your_own_rank(client, user, entity):
-    """ "Equal to or higher" -- an accountant may not cancel another accountant's invite."""
+    """Strict (owner, 2026-11-12): an accountant may not cancel another accountant's invite."""
     inv = make_invite(entity, role="accountant")
     auth = as_role(user, entity, "accountant")
-    assert cancel(client, auth, inv.id).status_code == 200
+    assert cancel(client, auth, inv.id).status_code == 403
 
     # ...but the rank rule still bites one step up.
     higher = make_invite(entity, email="b@example.com", role="admin")

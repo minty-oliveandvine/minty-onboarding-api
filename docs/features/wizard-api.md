@@ -261,6 +261,47 @@ is the proxied `POST /billing/authorize` on step 2, and it may be skipped - noth
 changes, but a company that skipped it goes live with trials that expire rather than convert
 until an admin confirms billing in minty-web.
 
+
+## Settings' accounts and contacts (`onboarding/internal.py`, `services/chart.py`; owner 2026-11-12)
+
+The ONE implementation of a company's accounts and contacts add / edit / delete - the wizard's
+account steps and the hub's Settings share it (`accounting._create`, `_apply_update`, `_retire`:
+the checks, the old readers' rows, the module rows, the daily-closing slots). The hub reaches it
+through accounts-api (`/api/me/company/accounts|contacts`), which calls
+`/api/internal/chart/{accounts,contacts}[/<id>]` with a service assertion (scope `company-chart`,
+claims `entity_id` and `user_id`; anything else 401). The person's rights are checked again here.
+
+- **Who owns what.** Every row is the company's own copy, so any is edited or deleted (owner,
+  2026-11-12): `source` `user`, `xero`, and `template` (its copies of Minty's starter chart and
+  template contacts; Minty's `account_template` is never touched). Only the hidden system rows stay
+  out. The read marks each row `own`, `source`, `in_xero`, `used`; it also sends the types and each
+  type's next free code (`minty_shared.accounts`).
+- **Minty's accounts** (owner, 2026-11-12): the read's `minty_accounts` are the starter chart
+  (`account_template`) for the company's country, every business type's, one per name, less the
+  hidden system rows and any the company has; `POST {template_id}` adds one as Minty's copy
+  (`accounting._from_template`: its module and daily-closing defaults, as Auto Fill) - in Xero
+  first when live; a code already taken is refused (409), one no longer offered is 404.
+- **With or without Xero.** A company live on Xero (`xero_connected` + a token) gets each change in
+  Xero first - `PUT /Accounts`, `POST /Accounts/{id}` (an edit, or `Status: ARCHIVED`), `POST
+  /Contacts` (a new one, a rename or `ContactStatus: ARCHIVED`); Xero's refusal is a sentence
+  (422, `core/xero_client.write`), unanswered 502, and nothing changes in Minty. A live company with
+  no token: 409, reconnect. Not live: the company's own Minty rows; a row already linked to Xero
+  waits for a reconnect (409).
+- **Delete is complete**: deleted when unused, else archived (kept for its records, off every list
+  and picker, its module rows off).
+- **No duplicate contacts.** Names are unique per company among active ones (case and inner spaces
+  ignored; 409 naming the existing one). A live company's new contact links to the stored Xero
+  contact of that name before making one; a Minty-made contact met while live goes into Xero
+  then (`find_or_make_contact`, also behind the wizard's `/contacts/create`).
+- **Deleted, then added again: brought back, never a twin** (owner, 2026-11-12). An account added
+  with the code, name and type of one the company deleted - or a contact with the name of one - is
+  that one: Minty's archived row restored (its name kept; modules and old-reader rows on again), or,
+  its row gone, the archived Xero copy linked to a new row; set ACTIVE in Xero when it is there
+  ("<name> is back."). A delete marks Minty's copy (`xero_account` / `xero_contact`) archived at
+  once, so nothing links to it meanwhile. Offline, a row still linked to Xero is refused: "<name>
+  was archived in Xero. Reconnect Xero to bring it back."
+- Tests: `tests/test_chart.py`.
+
 ## Tests
 
 `tests/test_state.py`, `test_entity.py`, `test_pettycash.py`, `test_invites.py`,

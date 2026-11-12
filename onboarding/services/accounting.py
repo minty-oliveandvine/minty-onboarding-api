@@ -26,7 +26,6 @@ Part 11's (issue, then action).
 from __future__ import annotations
 
 import logging
-import re
 
 from django.db import transaction
 from django.db.models import Q
@@ -41,6 +40,14 @@ from minty_db.models import (
     EntityPettycashSettings,
     EntitySaleSetting,
     ReportExpense,
+)
+
+# the account rules every backend checks (minty_shared.accounts, v0.5; owner 2026-11-12: one copy,
+# shared with the hub's Settings)
+from minty_shared import accounts as accounts_rules
+from minty_shared.accounts import (
+    TYPE_WORDS,
+    XERO_TYPE,
 )
 
 from core import xero_client
@@ -79,71 +86,6 @@ SLOTS = {
     ),
 }
 
-#: Minty's type in Xero's spelling, for the old ``account_info.type`` column the apps still read.
-XERO_TYPE = {
-    "bank": "BANK",
-    "current": "CURRENT",
-    "fixed": "FIXED",
-    "inventory": "INVENTORY",
-    "noncurrent": "NONCURRENT",
-    "prepayment": "PREPAYMENT",
-    "current_liability": "CURRLIAB",
-    "liability": "LIABILITY",
-    "term_liability": "TERMLIAB",
-    "equity": "EQUITY",
-    "sales": "SALES",
-    "revenue": "REVENUE",
-    "other_income": "OTHERINCOME",
-    "direct_costs": "DIRECTCOSTS",
-    "expense": "EXPENSE",
-    "overheads": "OVERHEADS",
-    "depreciation": "DEPRECIATN",
-}
-#: Where a type's codes start when the company has none of that type yet (Xero's demo chart).
-CODE_START = {
-    "bank": 90,
-    "current": 600,
-    "fixed": 700,
-    "inventory": 630,
-    "noncurrent": 700,
-    "prepayment": 620,
-    "current_liability": 800,
-    "liability": 800,
-    "term_liability": 900,
-    "equity": 960,
-    "sales": 200,
-    "revenue": 200,
-    "other_income": 260,
-    "direct_costs": 300,
-    "expense": 400,
-    "overheads": 400,
-    "depreciation": 416,
-}
-TYPE_WORDS = {
-    "bank": "Bank",
-    "current": "Current asset",
-    "fixed": "Fixed asset",
-    "inventory": "Inventory",
-    "noncurrent": "Non-current asset",
-    "prepayment": "Prepayment",
-    "current_liability": "Current liability",
-    "liability": "Liability",
-    "term_liability": "Non-current liability",
-    "equity": "Equity",
-    "sales": "Sales",
-    "revenue": "Revenue",
-    "other_income": "Other income",
-    "direct_costs": "Direct costs",
-    "expense": "Expense",
-    "overheads": "Overhead",
-    "depreciation": "Depreciation",
-}
-CODE_MAX, NAME_MAX, DESCRIPTION_MAX = (
-    10,
-    80,
-    255,
-)  # account_info.name is 80 until CONTRACT widens it
-CODE_SHAPE = re.compile(r"^[A-Za-z0-9.\-]+$")
 MINTY_MADE = ("template", "user")
 
 
@@ -215,16 +157,9 @@ def _code_number(code: str | None) -> int | None:
 
 
 def next_code(entity_id, account_type: str) -> str:
-    """The next free code for a type (4.3b): one past the type's highest number, else where the type
-    starts, moved on past any code the company already uses."""
-    rows = list(_active(entity_id).values_list("code", "account_type"))
-    taken = {c for c, _ in rows if c}
-    numbers = [n for c, t in rows if t == account_type and (n := _code_number(c)) is not None]
-    number = max(numbers) + 1 if numbers else CODE_START.get(account_type, 100)
-    width = 3
-    while f"{number:0{width}d}" in taken:
-        number += 1
-    return f"{number:0{width}d}"
+    """The next free code for a type (4.3b): ``minty_shared.accounts.next_code`` over the company's
+    active codes."""
+    return accounts_rules.next_code(_active(entity_id).values_list("code", "account_type"), account_type)
 
 
 def _settings(entity_id) -> EntityPettycashSettings | None:
@@ -450,17 +385,9 @@ def _present(entity_id, template: AccountTemplate) -> bool:
 def _clash(entity_id, code: str | None, name: str, exclude=None) -> dict:
     """The field sentences for a code or name another active account already has."""
     accounts = _active(entity_id).exclude(id=exclude) if exclude else _active(entity_id)
-    fields = {}
-    if code:
-        holder = accounts.filter(code=code).first()
-        if holder:
-            fields["code"] = (
-                f"The code {code} is already used by {holder.name}. Choose another code."
-            )
-    holder = accounts.filter(name__iexact=name.strip()).first()
-    if holder:
-        fields["name"] = f"Another account is already called {holder.name}. Choose another name."
-    return fields
+    by_code = accounts.filter(code=code).first() if code else None
+    by_name = accounts.filter(name__iexact=name.strip()).first()
+    return accounts_rules.clash_fields(code, by_code.name if by_code else None, by_name.name if by_name else None)
 
 
 def autofill_options(user_id, entity_id, kind) -> tuple[dict, int]:
@@ -570,38 +497,12 @@ def revert(user_id, entity_id, kind) -> tuple[dict, int]:
 
 
 def _check(entity_id, payload: dict, exclude=None) -> tuple[dict, dict]:
-    """The cleaned fields and the field sentences for one account's code, name, type, description."""
-    code = str(payload.get("code") or "").strip()
-    name = re.sub(r"\s+", " ", str(payload.get("name") or "")).strip()
-    account_type = payload.get("type")
-    description = str(payload.get("description") or "").strip()
-    fields = {}
-    if account_type not in XERO_TYPE:
-        fields["type"] = "Choose the account type to continue."
-    if not code and account_type != "bank":
-        fields["code"] = "The code is still empty. Add a code to continue."
-    elif len(code) > CODE_MAX:
-        fields["code"] = f"The code can be up to {CODE_MAX} characters. Shorten it to continue."
-    elif code and not CODE_SHAPE.match(code):
-        fields["code"] = (
-            "The code can use letters, numbers, dots and dashes. Remove the other characters."
-        )
-    if not name:
-        fields["name"] = "The name is still empty. Add a name to continue."
-    elif len(name) > NAME_MAX:
-        fields["name"] = f"The name can be up to {NAME_MAX} characters. Shorten it to continue."
-    if len(description) > DESCRIPTION_MAX:
-        fields["description"] = (
-            f"The description can be up to {DESCRIPTION_MAX} characters. Shorten it to continue."
-        )
+    """The cleaned fields and the field sentences for one account's code, name, type and description:
+    each field's own rule (``minty_shared.accounts.check_fields``), then a code or name taken."""
+    clean, fields = accounts_rules.check_fields(payload)
     if not fields:
-        fields = _clash(entity_id, code or None, name, exclude)
-    return {
-        "code": code or None,
-        "name": name,
-        "type": account_type,
-        "description": description or None,
-    }, fields
+        fields = _clash(entity_id, clean["code"], clean["name"], exclude)
+    return clean, fields
 
 
 def _old_rows(
@@ -779,32 +680,34 @@ def update_account(user_id, entity_id, account_id, payload: dict) -> tuple[dict,
         return {"error": next(iter(fields.values())), "fields": fields}, 409 if _is_clash(
             fields
         ) else 400
-    previous = account.code
     with transaction.atomic():
-        account.code, account.name, account.description = (
-            clean["code"],
-            clean["name"],
-            clean["description"],
-        )
-        account.account_type, account.type, account.xero_code = (
-            clean["type"],
-            XERO_TYPE[clean["type"]],
-            clean["code"],
-        )
-        account.save(
-            update_fields=["code", "name", "description", "account_type", "type", "xero_code"]
-        )
-        if not account.is_system:
-            _old_rows(account, entity, previous_code=previous)
-        for role, (
-            column,
-            types,
-        ) in SLOTS.items():  # a slot never holds an account of the wrong type
-            if account.account_type not in types:
-                EntityPettycashSettings.objects.filter(
-                    entity_id=entity_id, **{column: account.id}
-                ).update(**{column: None})
+        _apply_update(entity, account, clean)
     return {"account": _row(account)}, 200
+
+
+def _apply_update(entity: Entity, account: AccountInfo, clean: dict) -> None:
+    """One account's checked code, name, type and description, with its old-reader rows; a
+    daily-closing slot never keeps an account of the wrong type. The wizard's edit and Settings'
+    (``chart``) both run this."""
+    previous = account.code
+    account.code, account.name, account.description = (
+        clean["code"],
+        clean["name"],
+        clean["description"],
+    )
+    account.account_type, account.type, account.xero_code = (
+        clean["type"],
+        XERO_TYPE[clean["type"]],
+        clean["code"],
+    )
+    account.save(update_fields=["code", "name", "description", "account_type", "type", "xero_code"])
+    if not account.is_system:
+        _old_rows(account, entity, previous_code=previous)
+    for column, types in SLOTS.values():
+        if account.account_type not in types:
+            EntityPettycashSettings.objects.filter(entity_id=entity.id, **{column: account.id}).update(
+                **{column: None}
+            )
 
 
 def delete_account(user_id, entity_id, account_id) -> tuple[dict, int]:
@@ -825,16 +728,25 @@ def delete_account(user_id, entity_id, account_id) -> tuple[dict, int]:
             "error": "This account comes from Xero. Archive it in Xero, and Minty follows."
         }, 409
     with transaction.atomic():
-        if _used(account.id):
-            account.record_status, account.status = "archived", "ARCHIVED"
-            account.save(update_fields=["record_status", "status"])
-            EntityAccountXero.objects.filter(account_id=account.id).update(is_active=False)
-            EntityBillAccountXero.objects.filter(
-                entity_id=entity_id, account_code=account.code, xero_account_id=""
-            ).update(is_active=False, is_deleted=True)
-            return {"archived": True}, 200
+        archived = _retire(account)
+    return {"archived": archived}, 200
+
+
+def _retire(account: AccountInfo) -> bool:
+    """Take an account away: archived when something uses it (kept for its records, off every
+    list), else deleted with its old-reader rows. True when archived. The wizard's delete and
+    Settings' (``chart``) both run this."""
+    if not _used(account.id):
         _remove(account)
-    return {"archived": False}, 200
+        return False
+    account.record_status, account.status = "archived", "ARCHIVED"
+    account.save(update_fields=["record_status", "status"])
+    EntityAccountXero.objects.filter(account_id=account.id).update(is_active=False)
+    EntityBillAccountXero.objects.filter(
+        entity_id=account.entity_id, account_code=account.code, xero_account_id=""
+    ).update(is_active=False, is_deleted=True)
+    AccountModule.objects.filter(account_id=account.id).update(is_active=False)
+    return True
 
 
 # ---- X2, X3: which of the Xero chart's accounts Minty uses ------------------------------------

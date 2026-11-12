@@ -305,7 +305,8 @@ def test_a_new_contact_refused_or_unnamed(client, auth, connected, xero):
         "error": "Contact name is required."}
     xero.down = True
     resp = post(client, auth, CREATE, {"entity_id": connected.id, "contact_name": "X"})
-    assert (resp.status_code, resp.json()) == (502, {"error": "Failed to create contact in Xero. Please try again."})
+    # Xero said no (a 400): its refusal, said as a sentence; nothing stored
+    assert (resp.status_code, resp.json()) == (422, {"error": "Xero didn't accept that. Check it in Xero and try again."})
     assert not XeroContactSync.objects.filter(entity_id=connected.id).exists()
 
 

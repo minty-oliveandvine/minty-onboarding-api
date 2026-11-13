@@ -202,13 +202,14 @@ def test_role_rank_is_applied(entity, user):
     assert policy.has_permission(user, Permission.USER_INVITE, entity.id) is False  # shop_manager+
 
 
-# --- role assignment: strict - only roles below yours, never below shop_manager -------
+# --- role assignment: strict - only roles below yours (admin excepted), never below shop_manager -------
 
 
 @pytest.mark.parametrize(
     "actor, target, allowed",
     [
-        ("admin", "admin", False),  # strict (owner, 2026-11-12): never your own rank
+        ("admin", "admin", True),  # admin is exempt from the same-rank rule (owner, 2026-11-13)
+        ("accountant", "accountant", False),  # strict (owner, 2026-11-12): never your own rank
         ("admin", "cashier", True),
         ("admin", "super_admin", False),
         ("shop_manager", "shop_manager", False),

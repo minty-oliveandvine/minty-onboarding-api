@@ -78,6 +78,28 @@ def test_create_makes_the_caller_an_admin_member(
 
 
 @pytest.mark.django_db
+def test_the_creator_is_the_companys_subscriber(client, auth, countries, currencies, user, modules):
+    """Owner, 2026-11-13: whoever creates a company holds its subscription - only they may
+    activate or change it (minty-db v0.9 entities.subscriber_user_id)."""
+    entity_id = post_create(client, auth, entity_name="Acme", **STEP1).json()["entity_id"]
+    assert str(Entity.objects.get(id=entity_id).subscriber_user_id) == str(user.id)
+
+
+@pytest.mark.django_db
+def test_a_resumed_company_with_no_subscriber_gets_its_creator(
+    client, auth, countries, currencies, user, modules
+):
+    """A company started before the column existed is resumed with its creator filled in."""
+    entity_id = post_create(client, auth, entity_name="Older Co", **STEP1).json()["entity_id"]
+    Entity.objects.filter(id=entity_id).update(subscriber_user_id=None)
+
+    again = post_create(client, auth, entity_name="Older Co", **STEP1).json()["entity_id"]
+
+    assert again == entity_id
+    assert str(Entity.objects.get(id=entity_id).subscriber_user_id) == str(user.id)
+
+
+@pytest.mark.django_db
 def test_create_requires_a_name(client, auth, countries, currencies, modules):
     resp = post_create(client, auth, entity_name="   ", **STEP1)
     assert resp.status_code == 400

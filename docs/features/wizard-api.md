@@ -55,7 +55,10 @@ idempotent on (member, name, `status = onboarding`) so a retry resumes the aband
 `entities.timezone` from the country (`minty_shared.time.country_timezone`, the tracker's map;
 owner, 2026-11-04) - a sent `timezone` is ignored, and a country the map lacks keeps the stored
 zone with a warning in the log. Create derives the currency from the country when none is
-sent (as edit always has) and sets the creator's `user_entity.joined_at`. **Create requires a
+sent (as edit always has) and sets the creator's `user_entity.joined_at`. **The creator is the
+company's subscriber** (owner, 2026-11-13; minty-db v0.9 `entities.subscriber_user_id`). Only
+they may activate or change its subscription until they hand it over, and minty-subscription-api
+enforces that. A resumed company with no subscriber gets its creator, never over one already set. **Create requires a
 country and a currency** (owner, 2026-10-19: Step 1 no longer pre-fills Hong Kong / HKD): no
 country is a 400 `"Choose the company's country."`, and no currency sent or derivable from the
 country's registry row is a 400 `"Choose the company's currency."` — both before the company is

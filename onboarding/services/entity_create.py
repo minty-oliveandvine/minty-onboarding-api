@@ -263,6 +263,13 @@ def create_entity_for_user(
             "onboarding: reusing in-progress entity %s for a repeated Step 1 submit",
             existing.id,
         )
+        # A company started before minty-db v0.9 has no subscriber: its creator takes it now,
+        # never over one already set.
+        if existing.subscriber_user_id is None:
+            Entity.objects.filter(id=existing.id, subscriber_user_id__isnull=True).update(
+                subscriber_user_id=str(user_id)
+            )
+            existing.refresh_from_db(fields=["subscriber_user_id"])
         return existing, False
 
     if user_has_company_named(user_id, name):
@@ -283,6 +290,9 @@ def create_entity_for_user(
             # and resume and the reminder email treat the company as done (Flask's create sets
             # it the same way; minty-db's model carries the default, the old copy did not).
             onboarding_saved_step=None,
+            # Whoever creates a company holds its subscription (owner, 2026-11-13): only they
+            # may activate or change it until they hand it over (minty-db v0.9).
+            subscriber_user_id=str(user_id),
         )
         UserEntity.objects.create(
             user_id=str(user_id),
